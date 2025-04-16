@@ -47,7 +47,13 @@ namespace ippl {
 
     TEST_F(PoissonFeynmanKacTest, dummy) {
         unsigned expected = 0;
-        EXPECT_EQ(feynmanKac.WoS(), expected);
+        EXPECT_EQ(feynmanKac.WoS().work, expected);
+    }
+
+    TEST_F(PoissonFeynmanKacTest, dummy2) {
+        Vector<double, dim> expected = {0.199966, 1.168141, 3.0664};
+        Vector<double, dim> result   = feynmanKac.sampleGreenDensity(0.5);
+        EXPECT_NEAR(result[0], expected[0], 1e-5);
     }
 
 }  // namespace ippl
