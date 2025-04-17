@@ -12,6 +12,8 @@
 
 #include "Types/Vector.h"
 
+#include "Kokkos_Complex.hpp"
+#include "Kokkos_MathematicalConstants.hpp"
 #include "Kokkos_Random.hpp"
 #include "Poisson.h"
 
@@ -48,6 +50,9 @@ namespace ippl {
             static_assert(std::is_floating_point<Tlhs>::value, "Not a floating point type");
             this->density_max[0] =
                 (Dim - 2) * (Dim - 2) / (2 * Dim * (Dim - 1) * Kokkos::pow(Dim - 1, 1 / (Dim - 2)));
+            if (Dim == 2) {
+                this->density_max = 4 / Kokkos::numbers::e;
+            }
             for (unsigned int d = 1; d < Dim; ++d) {
                 // calculate the normalization constant which is also the maximum
                 // of the angular densities
@@ -85,9 +90,13 @@ namespace ippl {
 
             Tlhs y;
             // sample the radius
+            Tlhs radius_density_max = density_max[0] * Kokkos::pow(d, 2 * Dim - 1);
+            if (Dim == 2) {
+                radius_density_max = density_max[0] / d;
+            }
             do {
                 sample[0] = generator.drand(0, d);
-                y         = generator.drand(0, density_max[0] * Kokkos::pow(d, 2 * Dim - 1));
+                y         = generator.drand(0, radius_density_max);
             } while (radiusPdf(sample[0], d) < y);
 
             for (unsigned int i = 1; i < Dim - 1; ++i) {
@@ -121,6 +130,7 @@ namespace ippl {
          */
         Tlhs anglePdf(Tlhs phi, unsigned int i) {
             assert(i < Dim - 1 && "invalid function index");
+            assert(Dim > 2 && "function only needed for dimension at least 3");
             // calculate the normalization constant
             // beta function of 1/2 and (n-i)/2 which we express through the
             // gamma function
@@ -138,6 +148,9 @@ namespace ippl {
          * @return density value
          */
         Tlhs radiusPdf(Tlhs r, Tlhs d) {
+            if (Dim == 2) {
+                return 4 * r / (d * d) * Kokkos::log(d / r);
+            }
             assert(r > 0 && r < d && "invalid function index");
             // calculate the normalization constant
             // d^n * (n-2) / 2 * n
