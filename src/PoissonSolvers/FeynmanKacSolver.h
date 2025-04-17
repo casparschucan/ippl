@@ -90,7 +90,8 @@ namespace ippl {
          */
         WosSample WoS(Vector_t x0) {
             WosSample sample;
-            sample.work = 0;
+            sample.work   = 0;
+            sample.sample = 0;
 
             Vector_t x = x0;
 
@@ -110,6 +111,8 @@ namespace ippl {
 
                 // sample the Green's function density
                 Vector_t y_j = x + sampleGreenDensity(distance);
+
+                sample.sample += interpolate(y_j);
 
                 // calculate the work done
                 sample.work += 2 * Dim;
@@ -179,6 +182,26 @@ namespace ippl {
 
             random_pool.free_state(generator);
             return sphericalToCartesian(sample);
+        }
+
+        /**
+         * @brief Function that interpolates the rhs field at the given point
+         * @param x point to interpolate
+         * @return interpolated value
+         */
+        KOKKOS_INLINE_FUNCTION Tlhs interpolate(Vector_t x) {
+            Tlhs value = 0.0;
+            // get index of the nearest gridpoint to the left bottom of x
+            Vector_t index = Floor((x - origin) / grid_spacing);
+            // get the index of the nearest gridpoint
+            for (unsigned int d = 0; d < Dim; ++d) {
+                if (x[d] - grid_spacing[d] * index[d] > grid_spacing[d] / 2) {
+                    index[d] += 1;
+                }
+            }
+            value = this->rhs_mp->access_with_vector(index, std::make_index_sequence<Dim>{});
+
+            return value;
         }
 
     protected:
