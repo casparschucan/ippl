@@ -16,6 +16,7 @@
 #include "Kokkos_MathematicalConstants.hpp"
 #include "Kokkos_Random.hpp"
 #include "Poisson.h"
+#include "decl/Kokkos_Declare_SERIAL.hpp"
 
 namespace ippl {
 
@@ -63,6 +64,12 @@ namespace ippl {
                 this->density_max[d] = 1 / Z_i;
             }
             setDefaultParameters();
+            grid_spacing    = this->rhs_mp->get_mesh().getMeshSpacing();
+            grid_sizes      = this->rhs_mp->get_mesh().getGridsize();
+            origin          = this->rhs_mp->get_mesh().getOrigin();
+            grid_max_bounds = grid_sizes * grid_spacing;
+            delta0          = this->params_m.template get<Tlhs>("delta0");
+            epsilon         = this->params_m.template get<Tlhs>("tolerance");
         }
 
         void setSolver(lhs_type lhs) {}
@@ -76,7 +83,67 @@ namespace ippl {
             }
         }
 
-        WosSample WoS() { return {0, 0}; }
+        /**
+         * @brief Executes the walk on spheres algorithm from a starting position x0
+         * @param x0 starting position
+         * @return the integral value and the number of steps taken
+         */
+        WosSample WoS(Vector_t x0) {
+            WosSample sample;
+            sample.work = 0;
+
+            Vector_t x = x0;
+
+            while (true) {
+                Tlhs distance = getDistanceToBoundary(x);
+                // sample the offset by sampling the sphere with radius distance
+                Vector_t offset = sampleSurface(distance);
+                Vector_t x_next = x + offset;
+                // check if we are in the domain
+                assert(isInDomain(x_next) && "sampled point is outside the domain");
+
+                if (distance < delta0) {
+                    // if we are close to the boundary, we need to sample the Green's function
+                    // density and add it to the sample
+                    break;
+                }
+
+                // sample the Green's function density
+                Vector_t y_j = x + sampleGreenDensity(distance);
+
+                // calculate the work done
+                sample.work += 2 * Dim;
+
+                x = x_next;
+            }
+
+            return sample;
+        }
+
+        /**
+         * @brief Function to sample the surface of the n-Ball with radius d uniformly
+         * @param d radius of the n-Ball we're sampling
+         * @return a vector of size Dim with the sampled coordinates
+         */
+        KOKKOS_INLINE_FUNCTION Vector_t sampleSurface(Tlhs d) {
+            auto generator = random_pool.get_state();
+
+            Vector_t sample;
+
+            Tlhs y;
+            // set the radius to d
+            sample[0] = d;
+            // sample the first angle uniformly on the interval [0, pi)
+            for (unsigned int i = 1; i < Dim - 1; ++i) {
+                // sample the angle using rejection sampling
+                sample[i] = generator.drand(0, Kokkos::numbers::pi_v<Tlhs>);
+            }
+            // sample the last angle uniformly on the interval [0, 2 * pi)
+            sample[Dim - 1] = generator.drand(0, 2 * Kokkos::numbers::pi_v<Tlhs>);
+
+            random_pool.free_state(generator);
+            return sphericalToCartesian(sample);
+        }
 
         /**
          * @brief sample the Green's function density for the Poisson equation on a n-Ball in
@@ -111,7 +178,7 @@ namespace ippl {
             sample[Dim - 1] = generator.drand(0, 2 * Kokkos::numbers::pi_v<Tlhs>);
 
             random_pool.free_state(generator);
-            return sample;
+            return sphericalToCartesian(sample);
         }
 
     protected:
@@ -162,9 +229,69 @@ namespace ippl {
             return (d_n2 - r_n2) * r / Z_r;
         }
 
+        /**
+         * @brief Function to calculate the distance to the boundary of the domain
+         * This assumes that the domain is a hypercube
+         * @param x point to check
+         * @return distance to the boundary
+         */
+        Tlhs getDistanceToBoundary(Vector_t x) {
+            Tlhs distance = grid_max_bounds[0];
+            for (unsigned int d = 0; d < Dim; ++d) {
+                Tlhs dist = Kokkos::min(x[d] - origin[d], grid_max_bounds[d] - x[d]);
+                distance  = Kokkos::min(distance, dist);
+            }
+            return distance;
+        }
+
+        /**
+         * @brief Function to check if a point is in the domain
+         * @param x point to check
+         * @return true if the point is in the domain, false otherwise
+         */
+        bool isInDomain(Vector_t x) {
+            for (unsigned int d = 0; d < Dim; ++d) {
+                if (x[d] < origin[d] || x[d] > grid_max_bounds[d]) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /**
+         * @brief Function to convert a point in spherical coordinates to Cartesian coordinates
+         * @param spherical point in spherical coordinates
+         * @return point in Cartesian coordinates
+         */
+        KOKKOS_INLINE_FUNCTION Vector_t sphericalToCartesian(Vector_t spherical) {
+            Vector_t cartesian;
+            for (unsigned int d = 0; d < Dim - 1; ++d) {
+                cartesian[d] = spherical[0] * Kokkos::cos(spherical[d + 1]);
+                for (unsigned int i = 1; i <= d; ++i) {
+                    cartesian[d] *= Kokkos::sin(spherical[i]);
+                }
+            }
+            cartesian[Dim - 1] = spherical[0];
+            for (unsigned int i = 1; i < Dim; ++i) {
+                cartesian[Dim - 1] *= Kokkos::sin(spherical[i]);
+            }
+            return cartesian;
+        }
+
+        // The maxima of the different edge densities for the coordinates
         Vector_t density_max;
 
+        // the necessary mesh information to compute the walk on sphere samples
+        Vector_t grid_spacing;
+        Vector_t grid_sizes;
+        Vector_t origin;
+        Vector_t grid_max_bounds;
+
+        // the Kokkos random number generator pool
         GeneratorPool random_pool;
+
+        Tlhs delta0;
+        Tlhs epsilon;
     };
 }  // namespace ippl
 

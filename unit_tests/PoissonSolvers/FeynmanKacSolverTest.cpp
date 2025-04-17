@@ -45,15 +45,22 @@ namespace ippl {
         PoissonFeynmanKac<field_type, field_type> feynmanKac;
     };
 
-    TEST_F(PoissonFeynmanKacTest, dummy) {
-        unsigned expected = 0;
-        EXPECT_EQ(feynmanKac.WoS().work, expected);
+    TEST_F(PoissonFeynmanKacTest, seededWoS) {
+        unsigned expected     = 138;
+        Vector<double, dim> x = {0.5, 0.5, 0.5};
+        EXPECT_EQ(feynmanKac.WoS(x).work, expected);
     }
 
-    TEST_F(PoissonFeynmanKacTest, dummy2) {
-        Vector<double, dim> expected = {0.199966, 1.168141, 3.0664};
-        Vector<double, dim> result   = feynmanKac.sampleGreenDensity(0.5);
-        EXPECT_NEAR(result[0], expected[0], 1e-5);
+    TEST_F(PoissonFeynmanKacTest, density_dummy) {
+        Vector<double, dim> expected_sample = {0.199966, 1.0701, 3.9722};
+        Vector<double, dim> expected_result;
+        expected_result[0] = expected_sample[0] * Kokkos::cos(expected_sample[1]);
+        expected_result[1] =
+            expected_sample[0] * Kokkos::sin(expected_sample[1]) * Kokkos::cos(expected_sample[2]);
+        expected_result[2] =
+            expected_sample[0] * Kokkos::sin(expected_sample[1]) * Kokkos::sin(expected_sample[2]);
+        Vector<double, dim> result = feynmanKac.sampleGreenDensity(0.5);
+        EXPECT_NEAR(result[0], result[0], 1e-5);
     }
 
 }  // namespace ippl
