@@ -322,7 +322,8 @@ namespace ippl {
 
         Tlhs delta0;
         Tlhs epsilon;
-        constexpr static Tlhs sphere_volume = 1.0 / (2.0 * Dim * (Dim - 2));
+        // the integral of green's function over the unit sphere
+        constexpr static Tlhs sphere_volume = 1.0 / (2.0 * Dim);
     };
 }  // namespace ippl
 
