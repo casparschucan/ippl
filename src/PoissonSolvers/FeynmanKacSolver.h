@@ -121,7 +121,6 @@ namespace ippl {
 
                 x = x_next;
             }
-            sample.sample /= nsteps;
             return sample;
         }
 
