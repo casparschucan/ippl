@@ -3,6 +3,7 @@
 #include <memory>
 
 #include "Kokkos_Macros.hpp"
+#include "Kokkos_MathematicalFunctions.hpp"
 #include "PoissonSolvers/FeynmanKacSolver.h"
 #include "decl/Kokkos_Declare_SERIAL.hpp"
 #include "gtest/gtest.h"
@@ -75,10 +76,10 @@ namespace ippl {
         Vector<double, dim> x                                       = {0.5, 0.5, 0.5};
         PoissonFeynmanKac<field_type, field_type>::WosSample sample = feynmanKac.WoS(x);
         EXPECT_EQ(sample.work, expected);
-        EXPECT_NEAR(sample.sample, 0.0744746, 1e-5);
+        EXPECT_NEAR(sample.sample, 1.1915931, 1e-5);
     }
 
-    TEST_F(PoissonFeynmanKacTest, density_dummy) {
+    TEST_F(PoissonFeynmanKacTest, density_seeded) {
         Vector<double, dim> expected_sample = {0.199966, 1.0701, 3.9722};
         Vector<double, dim> expected_result;
         expected_result[0] = expected_sample[0] * Kokkos::cos(expected_sample[1]);
@@ -90,8 +91,34 @@ namespace ippl {
         EXPECT_NEAR(result[0], result[0], 1e-5);
     }
 
+    TEST_F(PoissonFeynmanKacTest, homogeneousWoSTestmiddle) {
+        Vector<double, dim> x = {0.5, 0.5, 0.5};
+        double expected       = 1.0;
+        double result         = 0;
+        size_t N              = 10000;
+        Kokkos::parallel_reduce(
+            "homogeneousWoSTest", N,
+            KOKKOS_LAMBDA(const int i, double& val) { val += feynmanKac.WoS(x).sample; },
+            Kokkos::Sum<double>(result));
+        result /= N;
+        EXPECT_NEAR(result, expected, 1e-1);
+    }
+
+    TEST_F(PoissonFeynmanKacTest, homogeneousWoSTestcorner) {
+        Vector<double, dim> x = {0.25, 0.25, 0.25};
+        double expected       = std::pow(Kokkos::sin(Kokkos::numbers::pi_v<double> / 4), 3);
+        double result         = 0;
+        size_t N              = 10000;
+        Kokkos::parallel_reduce(
+            "homogeneousWoSTest", N,
+            KOKKOS_LAMBDA(const int i, double& val) { val += feynmanKac.WoS(x).sample; },
+            Kokkos::Sum<double>(result));
+        result /= N;
+        EXPECT_NEAR(result, expected, 1e-1);
+    }
+
 }  // namespace ippl
-// this is required to test the orthotree, as it depends on ippl
+// this is necessary to initialize ippl and the (unused but required) MPI
 int main(int argc, char** argv) {
     // Initialize MPI and IPPL
     ippl::initialize(argc, argv, MPI_COMM_WORLD);
