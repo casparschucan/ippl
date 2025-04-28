@@ -13,6 +13,7 @@
 #include "Types/Vector.h"
 
 #include "Kokkos_Complex.hpp"
+#include "Kokkos_Macros.hpp"
 #include "Kokkos_MathematicalConstants.hpp"
 #include "Kokkos_Random.hpp"
 #include "Poisson.h"
@@ -88,10 +89,11 @@ namespace ippl {
          * @param x0 starting position
          * @return the integral value and the number of steps taken
          */
-        WosSample WoS(Vector_t x0) {
+        KOKKOS_INLINE_FUNCTION WosSample WoS(Vector_t x0) {
             WosSample sample;
             sample.work   = 0;
             sample.sample = 0;
+            size_t nsteps = 0;
 
             Vector_t x = x0;
 
@@ -104,22 +106,22 @@ namespace ippl {
                 assert(isInDomain(x_next) && "sampled point is outside the domain");
 
                 if (distance < delta0) {
-                    // if we are close to the boundary, we need to sample the Green's function
-                    // density and add it to the sample
+                    // if we are close to the boundary, we stop the walk
+                    x = x_next;
                     break;
                 }
 
                 // sample the Green's function density
                 Vector_t y_j = x + sampleGreenDensity(distance);
-
-                sample.sample += interpolate(y_j);
+                sample.sample += sphere_volume * distance * distance * interpolate(y_j);
 
                 // calculate the work done
                 sample.work += 2 * Dim;
+                nsteps++;
 
                 x = x_next;
             }
-
+            sample.sample /= nsteps;
             return sample;
         }
 
@@ -153,7 +155,7 @@ namespace ippl {
          * spherical coodrinates
          * @param d radius of the n-Ball we're sampling
          */
-        Vector_t sampleGreenDensity(Tlhs d) {
+        KOKKOS_INLINE_FUNCTION Vector_t sampleGreenDensity(Tlhs d) {
             auto generator = random_pool.get_state();
 
             Vector_t sample;
@@ -191,8 +193,14 @@ namespace ippl {
          */
         KOKKOS_INLINE_FUNCTION Tlhs interpolate(Vector_t x) {
             Tlhs value = 0.0;
+
+            Vector<size_t, Dim> offset(0.5);
             // get index of the nearest gridpoint to the left bottom of x
-            Vector_t index = Floor((x - origin) / grid_spacing);
+            Vector<size_t, Dim> index = Floor((x - origin) / grid_spacing - offset);
+            // check if the index is out of bounds
+            for (unsigned int d = 0; d < Dim; ++d) {
+                assert(index[d] < grid_sizes[d] && index[d] >= 0 && "index out of bounds");
+            }
             // get the index of the nearest gridpoint
             for (unsigned int d = 0; d < Dim; ++d) {
                 if (x[d] - grid_spacing[d] * index[d] > grid_spacing[d] / 2) {
@@ -208,7 +216,7 @@ namespace ippl {
         void setDefaultParameters() override {
             this->params_m.add("max_levels", 10);
             this->params_m.add("tolerance", (Tlhs)1e-3);
-            this->params_m.add("delta0", (Tlhs)1e-3);
+            this->params_m.add("delta0", (Tlhs)1e-2);
         }
 
         /**
@@ -218,7 +226,7 @@ namespace ippl {
          * @param i index of the angle
          * @return density value
          */
-        Tlhs anglePdf(Tlhs phi, unsigned int i) {
+        KOKKOS_INLINE_FUNCTION Tlhs anglePdf(Tlhs phi, unsigned int i) {
             assert(i < Dim - 1 && "invalid function index");
             assert(Dim > 2 && "function only needed for dimension at least 3");
             // calculate the normalization constant
@@ -237,7 +245,7 @@ namespace ippl {
          * @param d radius of the n-Ball we're sampling
          * @return density value
          */
-        Tlhs radiusPdf(Tlhs r, Tlhs d) {
+        KOKKOS_INLINE_FUNCTION Tlhs radiusPdf(Tlhs r, Tlhs d) {
             if (Dim == 2) {
                 return 4 * r / (d * d) * Kokkos::log(d / r);
             }
@@ -258,7 +266,7 @@ namespace ippl {
          * @param x point to check
          * @return distance to the boundary
          */
-        Tlhs getDistanceToBoundary(Vector_t x) {
+        KOKKOS_INLINE_FUNCTION Tlhs getDistanceToBoundary(Vector_t x) {
             Tlhs distance = grid_max_bounds[0];
             for (unsigned int d = 0; d < Dim; ++d) {
                 Tlhs dist = Kokkos::min(x[d] - origin[d], grid_max_bounds[d] - x[d]);
@@ -272,7 +280,7 @@ namespace ippl {
          * @param x point to check
          * @return true if the point is in the domain, false otherwise
          */
-        bool isInDomain(Vector_t x) {
+        KOKKOS_INLINE_FUNCTION bool isInDomain(Vector_t x) {
             for (unsigned int d = 0; d < Dim; ++d) {
                 if (x[d] < origin[d] || x[d] > grid_max_bounds[d]) {
                     return false;
@@ -315,6 +323,7 @@ namespace ippl {
 
         Tlhs delta0;
         Tlhs epsilon;
+        constexpr static Tlhs sphere_volume = 1.0 / (2.0 * Dim * (Dim - 2));
     };
 }  // namespace ippl
 

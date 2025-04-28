@@ -2,10 +2,17 @@
 
 #include <memory>
 
+#include "Kokkos_Macros.hpp"
 #include "PoissonSolvers/FeynmanKacSolver.h"
+#include "decl/Kokkos_Declare_SERIAL.hpp"
 #include "gtest/gtest.h"
 
 namespace ippl {
+
+    KOKKOS_INLINE_FUNCTION double sin(double x, double y, double z) {
+        double pi = Kokkos::numbers::pi_v<double>;
+        return pi * pi * 3 * Kokkos::sin(pi * x) * Kokkos::sin(pi * y) * Kokkos::sin(pi * z);
+    }
 
     class PoissonFeynmanKacTest : public ::testing::Test {
     public:
@@ -34,8 +41,26 @@ namespace ippl {
             Vector<double, dim> hx     = {dx, dx, dx};
             Vector<double, dim> origin = {0.0, 0.0, 0.0};
 
-            mesh       = mesh_type(ownedInput, hx, origin);
-            field      = std::make_shared<field_type>(mesh, flayout);
+            mesh             = mesh_type(ownedInput, hx, origin);
+            field            = std::make_shared<field_type>(mesh, flayout, 0);
+            auto field_view  = field->getView();
+            const int nghost = field->getNghost();
+            const auto& ldom = flayout.getLocalNDIndex();
+            Kokkos::parallel_for(
+                "Assign field", field->getFieldRangePolicy(),
+                KOKKOS_LAMBDA(const int i, const int j, const int k) {
+                    // go from local to global indices
+                    const int ig = i + ldom[0].first() - nghost;
+                    const int jg = j + ldom[1].first() - nghost;
+                    const int kg = k + ldom[2].first() - nghost;
+
+                    // define the physical points (cell-centered)
+                    double x = (ig + 0.5) * hx[0] + origin[0];
+                    double y = (jg + 0.5) * hx[1] + origin[1];
+                    double z = (kg + 0.5) * hx[2] + origin[2];
+
+                    field_view(i, j, k) = sin(x, y, z);
+                });
             feynmanKac = ippl::PoissonFeynmanKac<field_type, field_type>(*field, *field);
         }
 
@@ -46,9 +71,11 @@ namespace ippl {
     };
 
     TEST_F(PoissonFeynmanKacTest, seededWoS) {
-        unsigned expected     = 138;
-        Vector<double, dim> x = {0.5, 0.5, 0.5};
-        EXPECT_EQ(feynmanKac.WoS(x).work, expected);
+        unsigned expected                                           = 96;
+        Vector<double, dim> x                                       = {0.5, 0.5, 0.5};
+        PoissonFeynmanKac<field_type, field_type>::WosSample sample = feynmanKac.WoS(x);
+        EXPECT_EQ(sample.work, expected);
+        EXPECT_NEAR(sample.sample, 0.0744746, 1e-5);
     }
 
     TEST_F(PoissonFeynmanKacTest, density_dummy) {
