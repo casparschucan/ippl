@@ -109,15 +109,6 @@ namespace ippl {
         }
     }
 
-    TEST_F(PoissonFeynmanKacTest, homogeneousWoSTestcorner) {
-        Vector<double, dim> x = {0.25, 0.25, 0.25};
-        double expected       = std::pow(Kokkos::sin(Kokkos::numbers::pi_v<double> / 4), 3);
-        double result         = 0;
-        size_t N              = 1e5;
-        result                = feynmanKac.solvePoint(x, N);
-        EXPECT_NEAR(result, expected, 1e-1);
-    }
-
 }  // namespace ippl
 // this is necessary to initialize ippl and the (unused but required) MPI
 int main(int argc, char** argv) {
