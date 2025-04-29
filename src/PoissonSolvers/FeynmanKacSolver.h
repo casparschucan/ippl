@@ -17,8 +17,6 @@
 #include "Kokkos_MathematicalConstants.hpp"
 #include "Kokkos_Random.hpp"
 #include "Poisson.h"
-#include "decl/Kokkos_Declare_OPENMP.hpp"
-#include "decl/Kokkos_Declare_SERIAL.hpp"
 
 namespace ippl {
 
@@ -40,6 +38,11 @@ namespace ippl {
             Tlhs sample;
             WorkType work;
         };
+        KOKKOS_INLINE_FUNCTION WosSample& operator+=(const WosSample& rhs) {
+            this->sample += rhs.sample;
+            this->work += rhs.work;
+            return *this;
+        }
 
         PoissonFeynmanKac()
             : Base() {
@@ -211,14 +214,9 @@ namespace ippl {
                 if (index[d] >= gridSizes_m[d]) {
                     std::cout << "index: " << index[d] << " grid_sizes: " << gridSizes_m[d]
                               << std::endl;
+                    index[d]--;
                 }
                 assert(index[d] < gridSizes_m[d] && index[d] >= 0 && "index out of bounds");
-            }
-            // get the index of the nearest gridpoint
-            for (unsigned int d = 0; d < Dim; ++d) {
-                if (x[d] - gridSpacing_m[d] * index[d] > gridSpacing_m[d] / 2) {
-                    index[d] += 1;
-                }
             }
             value = this->rhs_mp->access_with_vector(index, std::make_index_sequence<Dim>{});
 

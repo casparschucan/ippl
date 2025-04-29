@@ -76,7 +76,7 @@ namespace ippl {
         Vector<double, dim> x                                       = {0.5, 0.5, 0.5};
         PoissonFeynmanKac<field_type, field_type>::WosSample sample = feynmanKac.WoS(x);
         EXPECT_EQ(sample.work, expected);
-        EXPECT_NEAR(sample.sample, 1.629761, 1e-5);
+        EXPECT_NEAR(sample.sample, 1.6335841, 1e-5);
     }
 
     TEST_F(PoissonFeynmanKacTest, density_seeded) {
@@ -91,20 +91,29 @@ namespace ippl {
         EXPECT_NEAR(result[0], result[0], 1e-5);
     }
 
-    TEST_F(PoissonFeynmanKacTest, homogeneousWoSTestmiddle) {
-        Vector<double, dim> x = {0.5, 0.5, 0.5};
-        double expected       = 1.0;
-        double result         = 0;
-        size_t N              = 10000;
-        result                = feynmanKac.solvePoint(x, N);
-        EXPECT_NEAR(result, expected, 1e-1);
+    TEST_F(PoissonFeynmanKacTest, homogeneousWoSTest) {
+        Vector<double, dim> x;
+        const double pi = Kokkos::numbers::pi_v<double>;
+        for (unsigned i = 1; i < 5; i++) {
+            x[0] = i / 5.0;
+            for (unsigned j = 1; j < 5; j++) {
+                x[1] = i / 5.0;
+                for (unsigned k = 1; k < 5; k++) {
+                    x[2]            = i / 5.0;
+                    double expected = sin(x[0], x[1], x[2]) / (pi * pi * 3);
+                    size_t N        = 1e5;
+                    double result   = feynmanKac.solvePoint(x, N);
+                    ASSERT_NEAR(result, expected, 1e-1 * expected);
+                }
+            }
+        }
     }
 
     TEST_F(PoissonFeynmanKacTest, homogeneousWoSTestcorner) {
         Vector<double, dim> x = {0.25, 0.25, 0.25};
         double expected       = std::pow(Kokkos::sin(Kokkos::numbers::pi_v<double> / 4), 3);
         double result         = 0;
-        size_t N              = 10000;
+        size_t N              = 1e5;
         result                = feynmanKac.solvePoint(x, N);
         EXPECT_NEAR(result, expected, 1e-1);
     }
