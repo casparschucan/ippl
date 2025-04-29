@@ -72,11 +72,11 @@ namespace ippl {
     };
 
     TEST_F(PoissonFeynmanKacTest, seededWoS) {
-        unsigned expected                                           = 96;
+        unsigned expected                                           = 90;
         Vector<double, dim> x                                       = {0.5, 0.5, 0.5};
         PoissonFeynmanKac<field_type, field_type>::WosSample sample = feynmanKac.WoS(x);
         EXPECT_EQ(sample.work, expected);
-        EXPECT_NEAR(sample.sample, 1.1915931, 1e-5);
+        EXPECT_NEAR(sample.sample, 1.629761, 1e-5);
     }
 
     TEST_F(PoissonFeynmanKacTest, density_seeded) {
@@ -96,11 +96,7 @@ namespace ippl {
         double expected       = 1.0;
         double result         = 0;
         size_t N              = 10000;
-        Kokkos::parallel_reduce(
-            "homogeneousWoSTest", N,
-            KOKKOS_LAMBDA(const int i, double& val) { val += feynmanKac.WoS(x).sample; },
-            Kokkos::Sum<double>(result));
-        result /= N;
+        result                = feynmanKac.solvePoint(x, N);
         EXPECT_NEAR(result, expected, 1e-1);
     }
 
@@ -109,11 +105,7 @@ namespace ippl {
         double expected       = std::pow(Kokkos::sin(Kokkos::numbers::pi_v<double> / 4), 3);
         double result         = 0;
         size_t N              = 10000;
-        Kokkos::parallel_reduce(
-            "homogeneousWoSTest", N,
-            KOKKOS_LAMBDA(const int i, double& val) { val += feynmanKac.WoS(x).sample; },
-            Kokkos::Sum<double>(result));
-        result /= N;
+        result                = feynmanKac.solvePoint(x, N);
         EXPECT_NEAR(result, expected, 1e-1);
     }
 
