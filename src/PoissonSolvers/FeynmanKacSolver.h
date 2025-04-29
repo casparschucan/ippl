@@ -51,8 +51,7 @@ namespace ippl {
             : randomPool_m(seed)
             , Base(lhs, rhs) {
             static_assert(std::is_floating_point<Tlhs>::value, "Not a floating point type");
-            this->densityMax_m[0] =
-                (Dim - 2) * (Dim - 2) / (2 * Dim * (Dim - 1) * Kokkos::pow(Dim - 1, 1 / (Dim - 2)));
+            this->densityMax_m[0] = (2 * Dim) / ((Dim - 1) * Kokkos::pow(Dim - 1, 1 / (Dim - 2)));
             if (Dim == 2) {
                 this->densityMax_m = 4 / Kokkos::numbers::e;
             }
@@ -174,13 +173,10 @@ namespace ippl {
 
             Tlhs y;
             // sample the radius
-            Tlhs radius_density_max = densityMax_m[0] * Kokkos::pow(d, 2 * Dim - 1);
-            if (Dim == 2) {
-                radius_density_max = densityMax_m[0] / d;
-            }
+            Tlhs radiusDensityMax = densityMax_m[0] / d;
             do {
                 sample[0] = generator.drand(0, d);
-                y         = generator.drand(0, radius_density_max);
+                y         = generator.drand(0, radiusDensityMax);
             } while (radiusPdf(sample[0], d) < y);
 
             for (unsigned int i = 1; i < Dim - 1; ++i) {
