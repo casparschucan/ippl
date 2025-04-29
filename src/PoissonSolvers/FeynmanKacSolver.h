@@ -17,6 +17,7 @@
 #include "Kokkos_MathematicalConstants.hpp"
 #include "Kokkos_Random.hpp"
 #include "Poisson.h"
+#include "decl/Kokkos_Declare_OPENMP.hpp"
 #include "decl/Kokkos_Declare_SERIAL.hpp"
 
 namespace ippl {
@@ -47,30 +48,30 @@ namespace ippl {
         }
 
         PoissonFeynmanKac(lhs_type& lhs, rhs_type& rhs, unsigned seed = 42)
-            : random_pool(seed)
+            : randomPool_m(seed)
             , Base(lhs, rhs) {
             static_assert(std::is_floating_point<Tlhs>::value, "Not a floating point type");
-            this->density_max[0] =
+            this->densityMax_m[0] =
                 (Dim - 2) * (Dim - 2) / (2 * Dim * (Dim - 1) * Kokkos::pow(Dim - 1, 1 / (Dim - 2)));
             if (Dim == 2) {
-                this->density_max = 4 / Kokkos::numbers::e;
+                this->densityMax_m = 4 / Kokkos::numbers::e;
             }
             for (unsigned int d = 1; d < Dim; ++d) {
                 // calculate the normalization constant which is also the maximum
                 // of the angular densities
                 // beta function of 1/2 and (n-i)/2 which we express through the
                 // gamma function
-                const Tlhs Z_i = Kokkos::tgamma(0.5) * Kokkos::tgamma((Dim - d) / 2)
-                                 / Kokkos::tgamma((Dim - d + 1) / 2);
-                this->density_max[d] = 1 / Z_i;
+                const Tlhs Z_i = Kokkos::tgamma(0.5) * Kokkos::tgamma((Dim - d) / 2.)
+                                 / Kokkos::tgamma((Dim - d + 1.) / 2.);
+                this->densityMax_m[d] = 1. / Z_i;
             }
             setDefaultParameters();
-            grid_spacing    = this->rhs_mp->get_mesh().getMeshSpacing();
-            grid_sizes      = this->rhs_mp->get_mesh().getGridsize();
-            origin          = this->rhs_mp->get_mesh().getOrigin();
-            grid_max_bounds = grid_sizes * grid_spacing;
-            delta0          = this->params_m.template get<Tlhs>("delta0");
-            epsilon         = this->params_m.template get<Tlhs>("tolerance");
+            gridSpacing_m   = this->rhs_mp->get_mesh().getMeshSpacing();
+            gridSizes_m     = this->rhs_mp->get_mesh().getGridsize();
+            origin_m        = this->rhs_mp->get_mesh().getOrigin();
+            gridMaxBounds_m = gridSizes_m * gridSpacing_m;
+            delta0_m        = this->params_m.template get<Tlhs>("delta0");
+            epsilon_m       = this->params_m.template get<Tlhs>("tolerance");
         }
 
         void setSolver(lhs_type lhs) {}
@@ -84,6 +85,20 @@ namespace ippl {
             }
         }
 
+        KOKKOS_INLINE_FUNCTION Tlhs solvePoint(Vector_t x, size_t N) {
+            // check if the point is in the domain
+            assert(isInDomain(x) && "point is outside the domain");
+            // sample the Green's function density
+            Tlhs result = 0;
+            Kokkos::parallel_reduce(
+                "homogeneousWoSTest", N,
+                KOKKOS_LAMBDA(const int i, double& val) { val += WoS(x).sample; },
+                Kokkos::Sum<double>(result));
+            result /= N;
+            // interpolate the rhs field at the sampled point
+            return result;
+        }
+
         /**
          * @brief Executes the walk on spheres algorithm from a starting position x0
          * @param x0 starting position
@@ -93,7 +108,6 @@ namespace ippl {
             WosSample sample;
             sample.work   = 0;
             sample.sample = 0;
-            size_t nsteps = 0;
 
             Vector_t x = x0;
 
@@ -105,7 +119,7 @@ namespace ippl {
                 // check if we are in the domain
                 assert(isInDomain(x_next) && "sampled point is outside the domain");
 
-                if (distance < delta0) {
+                if (distance < delta0_m) {
                     // if we are close to the boundary, we stop the walk
                     x = x_next;
                     break;
@@ -113,11 +127,10 @@ namespace ippl {
 
                 // sample the Green's function density
                 Vector_t y_j = x + sampleGreenDensity(distance);
-                sample.sample += sphere_volume * distance * distance * interpolate(y_j);
+                sample.sample += sphereVolume_s * distance * distance * interpolate(y_j);
 
                 // calculate the work done
                 sample.work += 2 * Dim;
-                nsteps++;
 
                 x = x_next;
             }
@@ -130,7 +143,7 @@ namespace ippl {
          * @return a vector of size Dim with the sampled coordinates
          */
         KOKKOS_INLINE_FUNCTION Vector_t sampleSurface(Tlhs d) {
-            auto generator = random_pool.get_state();
+            auto generator = randomPool_m.get_state();
 
             Vector_t sample;
 
@@ -145,7 +158,7 @@ namespace ippl {
             // sample the last angle uniformly on the interval [0, 2 * pi)
             sample[Dim - 1] = generator.drand(0, 2 * Kokkos::numbers::pi_v<Tlhs>);
 
-            random_pool.free_state(generator);
+            randomPool_m.free_state(generator);
             return sphericalToCartesian(sample);
         }
 
@@ -155,15 +168,15 @@ namespace ippl {
          * @param d radius of the n-Ball we're sampling
          */
         KOKKOS_INLINE_FUNCTION Vector_t sampleGreenDensity(Tlhs d) {
-            auto generator = random_pool.get_state();
+            auto generator = randomPool_m.get_state();
 
             Vector_t sample;
 
             Tlhs y;
             // sample the radius
-            Tlhs radius_density_max = density_max[0] * Kokkos::pow(d, 2 * Dim - 1);
+            Tlhs radius_density_max = densityMax_m[0] * Kokkos::pow(d, 2 * Dim - 1);
             if (Dim == 2) {
-                radius_density_max = density_max[0] / d;
+                radius_density_max = densityMax_m[0] / d;
             }
             do {
                 sample[0] = generator.drand(0, d);
@@ -174,14 +187,14 @@ namespace ippl {
                 // sample the angle using rejection sampling
                 do {
                     sample[i] = generator.drand(0, Kokkos::numbers::pi_v<Tlhs>);
-                    y         = generator.drand(0, density_max[i]);
+                    y         = generator.drand(0, densityMax_m[i]);
                 } while (anglePdf(sample[i], i) < y);
             }
 
             // sample the last angle
             sample[Dim - 1] = generator.drand(0, 2 * Kokkos::numbers::pi_v<Tlhs>);
 
-            random_pool.free_state(generator);
+            randomPool_m.free_state(generator);
             return sphericalToCartesian(sample);
         }
 
@@ -195,14 +208,19 @@ namespace ippl {
 
             Vector<size_t, Dim> offset(0.5);
             // get index of the nearest gridpoint to the left bottom of x
-            Vector<size_t, Dim> index = Floor((x - origin) / grid_spacing - offset);
+            Vector<size_t, Dim> index = Floor((x - origin_m) / gridSpacing_m - offset);
             // check if the index is out of bounds
             for (unsigned int d = 0; d < Dim; ++d) {
-                assert(index[d] < grid_sizes[d] && index[d] >= 0 && "index out of bounds");
+                // check if the index is out of bounds
+                if (index[d] >= gridSizes_m[d]) {
+                    std::cout << "index: " << index[d] << " grid_sizes: " << gridSizes_m[d]
+                              << std::endl;
+                }
+                assert(index[d] < gridSizes_m[d] && index[d] >= 0 && "index out of bounds");
             }
             // get the index of the nearest gridpoint
             for (unsigned int d = 0; d < Dim; ++d) {
-                if (x[d] - grid_spacing[d] * index[d] > grid_spacing[d] / 2) {
+                if (x[d] - gridSpacing_m[d] * index[d] > gridSpacing_m[d] / 2) {
                     index[d] += 1;
                 }
             }
@@ -231,10 +249,10 @@ namespace ippl {
             // calculate the normalization constant
             // beta function of 1/2 and (n-i)/2 which we express through the
             // gamma function
-            Tlhs Z_i = Kokkos::tgamma(0.5) * Kokkos::tgamma((Dim - i) / 2)
-                       / Kokkos::tgamma((Dim - i + 1) / 2);
+            Tlhs Z_i = Kokkos::tgamma(0.5) * Kokkos::tgamma((Dim - i) / 2.)
+                       / Kokkos::tgamma((Dim - i + 1.) / 2.);
 
-            return Kokkos::pow(Kokkos::sin(phi), Dim - i - 1) / Z_i;
+            return Kokkos::pow(Kokkos::sin(phi), Dim - i - 1.) / Z_i;
         }
 
         /**
@@ -246,12 +264,12 @@ namespace ippl {
          */
         KOKKOS_INLINE_FUNCTION Tlhs radiusPdf(Tlhs r, Tlhs d) {
             if (Dim == 2) {
-                return 4 * r / (d * d) * Kokkos::log(d / r);
+                return 4. * r / (d * d) * Kokkos::log(d / r);
             }
             assert(r > 0 && r < d && "invalid function index");
             // calculate the normalization constant
             // d^n * (n-2) / 2 * n
-            const Tlhs Z_r = Kokkos::pow(d, Dim) * (Dim - 2) / (2 * Dim);
+            const Tlhs Z_r = Kokkos::pow(d, Dim) * (Dim - 2.) / (2. * Dim);
 
             // intermediate variables
             const Tlhs r_n2 = Kokkos::pow(r, Dim - 2);
@@ -266,9 +284,9 @@ namespace ippl {
          * @return distance to the boundary
          */
         KOKKOS_INLINE_FUNCTION Tlhs getDistanceToBoundary(Vector_t x) {
-            Tlhs distance = grid_max_bounds[0];
+            Tlhs distance = gridMaxBounds_m[0];
             for (unsigned int d = 0; d < Dim; ++d) {
-                Tlhs dist = Kokkos::min(x[d] - origin[d], grid_max_bounds[d] - x[d]);
+                Tlhs dist = Kokkos::min(x[d] - origin_m[d], gridMaxBounds_m[d] - x[d]);
                 distance  = Kokkos::min(distance, dist);
             }
             return distance;
@@ -281,7 +299,7 @@ namespace ippl {
          */
         KOKKOS_INLINE_FUNCTION bool isInDomain(Vector_t x) {
             for (unsigned int d = 0; d < Dim; ++d) {
-                if (x[d] < origin[d] || x[d] > grid_max_bounds[d]) {
+                if (x[d] < origin_m[d] || x[d] > gridMaxBounds_m[d]) {
                     return false;
                 }
             }
@@ -309,21 +327,21 @@ namespace ippl {
         }
 
         // The maxima of the different edge densities for the coordinates
-        Vector_t density_max;
+        Vector_t densityMax_m;
 
         // the necessary mesh information to compute the walk on sphere samples
-        Vector_t grid_spacing;
-        Vector_t grid_sizes;
-        Vector_t origin;
-        Vector_t grid_max_bounds;
+        Vector_t gridSpacing_m;
+        Vector_t gridSizes_m;
+        Vector_t origin_m;
+        Vector_t gridMaxBounds_m;
 
         // the Kokkos random number generator pool
-        GeneratorPool random_pool;
+        GeneratorPool randomPool_m;
 
-        Tlhs delta0;
-        Tlhs epsilon;
+        Tlhs delta0_m;
+        Tlhs epsilon_m;
         // the integral of green's function over the unit sphere
-        constexpr static Tlhs sphere_volume = 1.0 / (2.0 * Dim);
+        constexpr static Tlhs sphereVolume_s = 1.0 / (2.0 * Dim);
     };
 }  // namespace ippl
 
