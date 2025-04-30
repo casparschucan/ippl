@@ -142,12 +142,6 @@ namespace ippl {
 
         halo_type& getHalo() { return halo_m; }
 
-        template <size_t... Args>
-        KOKKOS_INLINE_FUNCTION T access_with_vector(Vector<size_t, Dim> v,
-                                                    std::index_sequence<Args...>) const {
-            return dview_m(v[Args]...);
-        }
-
         // Assignment from a constant.
         BareField& operator=(T x);
 

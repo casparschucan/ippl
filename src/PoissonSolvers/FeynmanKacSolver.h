@@ -246,7 +246,7 @@ namespace ippl {
                 }
                 assert(index[d] < gridSizes_m[d] && index[d] >= 0 && "index out of bounds");
             }
-            value = this->rhs_mp->access_with_vector(index, std::make_index_sequence<Dim>{});
+            value = ippl::apply(this->rhs_mp->getView(), index);
 
             return value;
         }
