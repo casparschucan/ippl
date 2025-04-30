@@ -12,6 +12,8 @@
 
 #include "Types/Vector.h"
 
+#include "Expression/IpplOperations.h"
+
 #include "Kokkos_Complex.hpp"
 #include "Kokkos_Macros.hpp"
 #include "Kokkos_MathematicalConstants.hpp"
@@ -74,30 +76,56 @@ namespace ippl {
             gridMaxBounds_m = gridSizes_m * gridSpacing_m;
             delta0_m        = this->params_m.template get<Tlhs>("delta0");
             epsilon_m       = this->params_m.template get<Tlhs>("tolerance");
+            // Nsamples_m = this->params_m.template get<size_t>("N_samples");
+            Nsamples_m = 100000;
         }
 
-        void setSolver(lhs_type lhs) {}
-
         void solve() override {
-            setSolver(*(this->lhs_mp));
+            // collect useful parameters from the lhs field
+            using index_array_type = typename ippl::RangePolicy<Dim>::index_array_type;
+            auto lhsView           = this->lhs_mp->getView();
+            auto lhsdom            = this->lhs_mp->getLayout().getLocalNDIndex();
+            auto nghost            = this->lhs_mp->getNghost();
+            auto lhsGridSpacing    = this->lhs_mp->get_mesh().getMeshSpacing();
+            auto lhsorigin         = this->lhs_mp->get_mesh().getOrigin();
 
-            int output = this->params_m.template get<int>("output_type");
-            if (output & Base::GRAD) {
-                *(this->grad_mp) = -grad(*(this->lhs_mp));
-            }
+            // iterate through lhs field and solve at each position
+            ippl::parallel_for(
+                "Assign initial rho based on PDF", this->lhs_mp->getFieldRangePolicy(),
+                KOKKOS_LAMBDA(const index_array_type& args) {
+                    // local to global index conversion
+                    Vector_t xvec =
+                        (args + lhsdom.first() - nghost + 0.5) * lhsGridSpacing + lhsorigin;
+
+                    // ippl::apply accesses the view at the given indices and obtains a
+                    // reference; see src/Expression/IpplOperations.h
+                    ippl::apply(lhsView, args) = solvePoint(xvec, Nsamples_m);
+                });
+            return;
         }
 
         KOKKOS_INLINE_FUNCTION Tlhs solvePoint(Vector_t x, size_t N) {
             // check if the point is in the domain
             assert(isInDomain(x) && "point is outside the domain");
-            // sample the Green's function density
+            // collect N WoS samples and average the results
             Tlhs result = 0;
+            for (size_t i = 0; i < N; ++i) {
+                result += WoS(x).sample;
+            }
+            result /= N;
+            return result;
+        }
+
+        KOKKOS_INLINE_FUNCTION Tlhs solvePointParallel(Vector_t x, size_t N) {
+            // check if the point is in the domain
+            assert(isInDomain(x) && "point is outside the domain");
+            Tlhs result = 0;
+            // collect N WoS samples and average the results
             Kokkos::parallel_reduce(
                 "homogeneousWoSTest", N,
                 KOKKOS_LAMBDA(const int i, double& val) { val += WoS(x).sample; },
                 Kokkos::Sum<double>(result));
             result /= N;
-            // interpolate the rhs field at the sampled point
             return result;
         }
 
@@ -226,6 +254,7 @@ namespace ippl {
     protected:
         void setDefaultParameters() override {
             this->params_m.add("max_levels", 10);
+            // this->params_m.add("n_samples", (size_t)100000);
             this->params_m.add("tolerance", (Tlhs)1e-3);
             this->params_m.add("delta0", (Tlhs)1e-2);
         }
@@ -336,6 +365,9 @@ namespace ippl {
         Tlhs epsilon_m;
         // the integral of green's function over the unit sphere
         constexpr static Tlhs sphereVolume_s = 1.0 / (2.0 * Dim);
+
+        // Number of samples per point
+        size_t Nsamples_m;
     };
 }  // namespace ippl
 
