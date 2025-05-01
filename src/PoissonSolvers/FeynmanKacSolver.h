@@ -18,6 +18,7 @@
 #include "Kokkos_Macros.hpp"
 #include "Kokkos_MathematicalConstants.hpp"
 #include "Kokkos_Random.hpp"
+#include "ParameterList.h"
 #include "Poisson.h"
 
 namespace ippl {
@@ -55,6 +56,19 @@ namespace ippl {
         PoissonFeynmanKac(lhs_type& lhs, rhs_type& rhs, unsigned seed = 42)
             : randomPool_m(seed)
             , Base(lhs, rhs) {
+            setDefaultParameters();
+            initialize();
+        }
+
+        PoissonFeynmanKac(lhs_type& lhs, rhs_type& rhs, ParameterList& params, unsigned seed = 42)
+            : randomPool_m(seed)
+            , Base(lhs, rhs) {
+            setDefaultParameters();
+            this->params_m.merge(params);
+            initialize();
+        }
+
+        void initialize() {
             static_assert(std::is_floating_point<Tlhs>::value, "Not a floating point type");
             this->densityMax_m[0] = (2 * Dim) / ((Dim - 1) * Kokkos::pow(Dim - 1, 1 / (Dim - 2)));
             if (Dim == 2) {
@@ -69,15 +83,13 @@ namespace ippl {
                                  / Kokkos::tgamma((Dim - d + 1.) / 2.);
                 this->densityMax_m[d] = 1. / Z_i;
             }
-            setDefaultParameters();
             gridSpacing_m   = this->rhs_mp->get_mesh().getMeshSpacing();
             gridSizes_m     = this->rhs_mp->get_mesh().getGridsize();
             origin_m        = this->rhs_mp->get_mesh().getOrigin();
             gridMaxBounds_m = gridSizes_m * gridSpacing_m;
             delta0_m        = this->params_m.template get<Tlhs>("delta0");
             epsilon_m       = this->params_m.template get<Tlhs>("tolerance");
-            // Nsamples_m = this->params_m.template get<size_t>("N_samples");
-            Nsamples_m = 100000;
+            Nsamples_m      = this->params_m.template get<int>("N_samples");
         }
 
         void solve() override {
@@ -91,7 +103,7 @@ namespace ippl {
 
             // iterate through lhs field and solve at each position
             ippl::parallel_for(
-                "Assign initial rho based on PDF", this->lhs_mp->getFieldRangePolicy(),
+                "Assigne lhs based on point evaluation", this->lhs_mp->getFieldRangePolicy(),
                 KOKKOS_LAMBDA(const index_array_type& args) {
                     // local to global index conversion
                     Vector_t xvec =
@@ -177,7 +189,6 @@ namespace ippl {
 
             Vector_t sample;
 
-            Tlhs y;
             // set the radius to d
             sample[0] = d;
             // sample the first angle uniformly on the interval [0, pi)
@@ -254,7 +265,7 @@ namespace ippl {
     protected:
         void setDefaultParameters() override {
             this->params_m.add("max_levels", 10);
-            // this->params_m.add("n_samples", (size_t)100000);
+            this->params_m.add("N_samples", 100000);
             this->params_m.add("tolerance", (Tlhs)1e-3);
             this->params_m.add("delta0", (Tlhs)1e-2);
         }
