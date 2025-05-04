@@ -33,6 +33,7 @@
 #include "ParameterList.h"
 #include "PoissonCG.h"
 #include "PoissonSolvers/FeynmanKacSolver.h"
+#include "Vector.h"
 
 template <size_t Dim>
 KOKKOS_INLINE_FUNCTION double sinRhs(ippl::Vector<double, Dim> x) {
@@ -55,7 +56,7 @@ KOKKOS_INLINE_FUNCTION double sin(ippl::Vector<double, Dim> x) {
 }
 
 template <size_t Dim>
-void dimTest(int Nr, int Nsamples, double delta0, Inform& msg) {
+KOKKOS_FUNCTION void dimTest(int Nr, int Nsamples, double delta0, Inform& msg) {
     using Mesh_t      = ippl::UniformCartesian<double, Dim>;
     using Centering_t = Mesh_t::DefaultCentering;
     typedef ippl::Field<double, Dim, Mesh_t, Centering_t> field;
@@ -120,7 +121,7 @@ void dimTest(int Nr, int Nsamples, double delta0, Inform& msg) {
     //// reference; see src/Expression/IpplOperations.h
     // ippl::apply(lhsView, args) = solvePoint(xvec, Nsamples_m);
     //});
-    Kokkos::parallel_for(
+    ippl::parallel_for(
         "Assign rho field", rho.getFieldRangePolicy(), KOKKOS_LAMBDA(const index_array_type& args) {
             // go from local to global indices
             ippl::Vector<double, Dim> xvec = (args + ldom.first() - nghost + 0.5) * dx;
@@ -131,13 +132,13 @@ void dimTest(int Nr, int Nsamples, double delta0, Inform& msg) {
     // assign the exact field with its values (erf function)
     auto view_exact = exact.getView();
 
-    Kokkos::parallel_for(
+    ippl::parallel_for(
         "Assign exact field", exact.getFieldRangePolicy(),
         KOKKOS_LAMBDA(const index_array_type& args) {
             // go from local to global indices
             ippl::Vector<double, Dim> xvec = (args + ldom.first() - nghost + 0.5) * dx;
 
-            ippl::apply(view_rho, args) = sinRhs<Dim>(xvec);
+            ippl::apply(view_exact, args) = sin<Dim>(xvec);
         });
 
     // Parameter List to pass to solver
@@ -151,16 +152,21 @@ void dimTest(int Nr, int Nsamples, double delta0, Inform& msg) {
     Solver_t FKsolver(phi, rho, params);
     CGSolver_t CGSolver(phi, rho);
 
-    std::string Dimstring = std::to_string(Dim);
+    std::string Dimstring    = std::to_string(Dim);
+    std::string WosTimer_str = "WosTimer";
+    WosTimer_str.append(Dimstring);
+    std::string CGTimer_str = "CGTimer";
+    CGTimer_str.append(Dimstring);
 
-    static IpplTimings::TimerRef WoSTimer = IpplTimings::getTimer("WosTimer");
-    static IpplTimings::TimerRef CGTimer  = IpplTimings::getTimer("CGTimer");
+    static IpplTimings::TimerRef WoSTimer = IpplTimings::getTimer(WosTimer_str.c_str());
+    static IpplTimings::TimerRef CGTimer  = IpplTimings::getTimer(CGTimer_str.c_str());
 
+    ippl::Vector<double, Dim> test_pos(.5);
     // iterate over 5 timesteps
     for (int times = 0; times < 5; ++times) {
         IpplTimings::startTimer(WoSTimer);
         // solve the Poisson equation -> rho contains the solution (phi) now
-        FKsolver.solve();
+        FKsolver.solvePointParallel(test_pos, Nsamples);
         IpplTimings::stopTimer(WoSTimer);
         phi        = phi - exact;
         double err = norm(phi) / norm(exact);
@@ -192,18 +198,18 @@ int main(int argc, char* argv[]) {
 
         int Nr = std::atoi(argv[1]);
         // get the number of samples from the user
-        int N = std::atoi(argv[4]);
+        int N = std::atoi(argv[2]);
 
         // get the delta
-        double delta0 = std::strtod(argv[5], 0);
+        double delta0 = std::strtod(argv[3], 0);
 
         // print out info and title for the relative error (L2 norm)
         msg << "Test FeynmanKac, grid = " << Nr << " N samples = " << N << " delta0 = " << delta0
             << endl;
-        dimTest<1>(Nr, N, delta0, msg);
-        // dimTest<2>(Nr, N, delta0, msg);
-        // dimTest<3>(Nr, N, delta0, msg);
-        // dimTest<4>(Nr, N, delta0, msg);
+        // dimTest<1>(Nr, N, delta0, msg);
+        dimTest<2>(Nr, N, delta0, msg);
+        dimTest<3>(Nr, N, delta0, msg);
+        dimTest<4>(Nr, N, delta0, msg);
         //  stop the timers
         IpplTimings::stopTimer(allTimer);
         IpplTimings::print();
