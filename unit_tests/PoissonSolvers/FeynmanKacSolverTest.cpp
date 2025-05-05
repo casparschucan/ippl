@@ -170,6 +170,11 @@ namespace ippl {
                   << (sample.sampleSumSq - sample.sampleSum * sample.sampleSum / N) / N << std::endl
                   << "cost per sample: " << sample.CostSum / N << std::endl;
     }
+    TEST_F(PoissonFeynmanKacTest, MLMCTest) {
+        Vector<double, dim> x = {0.5, 0.5, 0.5};
+        double actual         = feynmanKac.solvePointMultilevel(x);
+        std::cout << "actual: " << actual << std::endl;
+    }
 
 }  // namespace ippl
 // this is necessary to initialize ippl and the (unused but required) MPI

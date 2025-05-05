@@ -19,6 +19,7 @@
 #include "Kokkos_Complex.hpp"
 #include "Kokkos_Macros.hpp"
 #include "Kokkos_MathematicalConstants.hpp"
+#include "Kokkos_MathematicalFunctions.hpp"
 #include "Kokkos_MinMax.hpp"
 #include "Kokkos_Random.hpp"
 #include "ParameterList.h"
@@ -177,20 +178,16 @@ namespace ippl {
 
         KOKKOS_INLINE_FUNCTION WosSample correlatedWoS(Vector_t x0, size_t level) {
             assert(level > 0 && "level 0 shouldn't be correlated");
-            WosSample sampleCoarse;
-            sampleCoarse.work   = 0;
-            sampleCoarse.sample = 0;
-
-            WosSample sampleFine;
-            sampleFine.work   = 0;
-            sampleFine.sample = 0;
+            WosSample sample;
+            sample.work   = 0;
+            sample.sample = 0;
 
             Vector_t x = x0;
 
             bool coarseIn = true;
 
-            Tlhs deltaCoarse = delta0_m / Kokkos::pow(16, level - 1);
-            Tlhs deltaFine   = deltaCoarse / 16;
+            Tlhs deltaCoarse = delta0_m / Kokkos::pow(4, level - 1);
+            Tlhs deltaFine   = deltaCoarse / 4;
 
             while (true) {
                 Tlhs distance = getDistanceToBoundary(x);
@@ -212,26 +209,27 @@ namespace ippl {
                 // sample the Green's function density
                 Vector_t y_j = x + sampleGreenDensity(distance);
 
-                if (coarseIn) {
-                    sampleCoarse.sample += sphereVolume_s * distance * distance * interpolate(y_j);
+                if (!coarseIn) {
+                    sample.sample += sphereVolume_s * distance * distance * interpolate(y_j);
                 }
 
-                sampleFine.sample += sphereVolume_s * distance * distance * interpolate(y_j);
-
                 // calculate the work done
-                sampleCoarse.work += 2 * Dim;
-                sampleFine.work += 2 * Dim;
+                sample.work += 2 * Dim;
 
                 x = x_next;
             }
-            return sampleFine - sampleCoarse;
+            return sample;
         }
 
-        KOKKOS_INLINE_FUNCTION MultilevelSum solvePointAtLevel(Vector_t x, size_t level, size_t N) {
+        KOKKOS_FUNCTION MultilevelSum solvePointAtLevel(Vector_t x, size_t level, size_t N) {
             // check if the point is in the domain
             assert(isInDomain(x) && "point is outside the domain");
             // collect N WoS samples and average the results
             MultilevelSum result;
+            result.sampleSum   = 0;
+            result.sampleSumSq = 0;
+            result.CostSum     = 0;
+            result.Nsamples    = 0;
             for (size_t i = 0; i < N; ++i) {
                 if (level == 0) {
                     result += WoS(x);
@@ -243,7 +241,100 @@ namespace ippl {
             return result;
         }
 
-        KOKKOS_INLINE_FUNCTION Tlhs solvePointMultilevel(Vector_t x) {}
+        KOKKOS_FUNCTION Tlhs solvePointMultilevel(Vector_t x) {
+            size_t maxLevel = this->params_m.template get<int>("max_levels");
+            Kokkos::View<size_t*> Ns("number of samples taken per level", maxLevel);
+            Kokkos::View<size_t*> Ndiff("number of samples we need additionally per level",
+                                        maxLevel);
+            Kokkos::View<Tlhs*> costs("cost per level", maxLevel);
+            Kokkos::View<Tlhs*> sum("sum of the samples per level", maxLevel);
+            Kokkos::View<Tlhs*> sumSq("sum of the samples per level", maxLevel);
+
+            for (unsigned i = 0; i < maxLevel; ++i) {
+                Ns(i)    = 10000;  // this->params_m.template get<size_t>("N_samples");
+                Ndiff(i) = Ns(i);
+                costs(i) = 0;
+                sum(i)   = 0;
+                sumSq(i) = 0;
+            }
+
+            bool converged     = false;
+            size_t curMaxLevel = 3;
+            while (!converged && curMaxLevel <= maxLevel) {
+                std::cout << "current level: " << curMaxLevel << std::endl;
+                // sample the estimated samples at the current level
+                for (unsigned i = 0; i < curMaxLevel; ++i) {
+                    MultilevelSum sample = solvePointAtLevel(x, i, Ndiff(i));
+                    sum(i) += sample.sampleSum;
+                    sumSq(i) += sample.sampleSumSq;
+                    costs(i) += sample.CostSum;
+                }
+
+                Tlhs varCostSumSq = 0;
+                // calculate the sum of the product of variance and cost per sample at each level
+                for (unsigned i = 0; i < curMaxLevel; ++i) {
+                    Tlhs variance = (sumSq(i) - sum(i) * sum(i) / Ns(i)) / Ns(i);
+                    assert(variance > 0 && "variance is negative");
+                    if (variance < 0) {
+                        std::cout << "variance too smol: " << variance << std::endl;
+                        variance = 0;
+                    }
+                    Tlhs costPerSample = costs(i) / Ns(i);
+
+                    varCostSumSq += Kokkos::sqrt(variance * costPerSample);
+                }
+
+                // calculate the number of samples we need to take at each level
+                for (unsigned i = 0; i < curMaxLevel; ++i) {
+                    // calculate the variance
+                    Tlhs variance = (sumSq(i) - sum(i) * sum(i) / Ns(i)) / Ns(i);
+                    std::cout << "variance: " << variance << std::endl;
+                    Tlhs costPerSample = costs(i) / Ns(i);
+                    // estimate the number of samples we optimally take
+                    size_t optimalNSamples = (Kokkos::sqrt(variance / costPerSample) * varCostSumSq)
+                                             / (epsilon_m * epsilon_m);
+                    std::cout << "optimal number of samples: " << optimalNSamples << std::endl;
+                    if (optimalNSamples > Ns(i)) {
+                        Ndiff(i) = optimalNSamples - Ns(i);
+                        Ns(i)    = optimalNSamples;
+                    } else {
+                        Ndiff(i) = 0;
+                    }
+                    // add samples as needed
+                    MultilevelSum sample = solvePointAtLevel(x, i, Ndiff(i));
+                    sum(i) += sample.sampleSum;
+                    sumSq(i) += sample.sampleSumSq;
+                    costs(i) += sample.CostSum;
+                    std::cout << "level: " << i << " samples: " << Ns(i)
+                              << " average: " << sum(i) / Ns(i) << std::endl;
+                }
+
+                // estimate the convergence rate as the difference between the last two levels
+                Tlhs av1 = sum(curMaxLevel - 1) / Ns(curMaxLevel - 1);
+                Tlhs av2 = sum(curMaxLevel - 2) / Ns(curMaxLevel - 2);
+                std::cout << "average: " << av1 << " " << av2 << std::endl;
+                Tlhs alpha = Kokkos::log2(Kokkos::abs(av2 / av1));
+                std::cout << "convergence rate: " << alpha << std::endl;
+                alpha = Kokkos::max(alpha, 0.5);
+
+                Tlhs estError = Kokkos::abs(av1) / (Kokkos::pow(2, alpha) - 1);
+                std::cout << "estimated error: " << estError * Kokkos::sqrt(2) << std::endl;
+                if (estError * 2 < epsilon_m) {
+                    std::cout << "converged with error: " << estError << std::endl;
+                    converged = true;
+                } else {
+                    // increase the number of levels
+                    curMaxLevel++;
+                }
+            }
+
+            // calculate the final result
+            Tlhs result = 0;
+            for (unsigned i = 0; i < curMaxLevel; ++i) {
+                result += sum(i) / Ns(i);
+            }
+            return result;
+        }
 
         /**
          * @brief Executes the walk on spheres algorithm from a starting position x0
