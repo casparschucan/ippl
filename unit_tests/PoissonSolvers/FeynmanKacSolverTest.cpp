@@ -1,6 +1,7 @@
 #include "Ippl.h"
 
 #include <memory>
+#include <ostream>
 
 #include "Kokkos_Macros.hpp"
 #include "Kokkos_MathematicalFunctions.hpp"
@@ -149,6 +150,25 @@ namespace ippl {
                 }
             }
         }
+    }
+
+    TEST_F(PoissonFeynmanKacTest, samplePointAtLevelTest) {
+        size_t N              = 10000;
+        Vector<double, dim> x = {0.5, 0.5, 0.5};
+        PoissonFeynmanKac<field_type, field_type>::MultilevelSum sample =
+            feynmanKac.solvePointAtLevel(x, 1, N);
+        std::cout << "sampled with the following results at level 1" << std::endl
+                  << "average: " << sample.sampleSum / N << std::endl
+                  << "variance: "
+                  << (sample.sampleSumSq - sample.sampleSum * sample.sampleSum / N) / N << std::endl
+                  << "cost per sample: " << sample.CostSum / N << std::endl;
+
+        sample = feynmanKac.solvePointAtLevel(x, 2, N);
+        std::cout << "sampled with the following results at level 2" << std::endl
+                  << "average: " << sample.sampleSum / N << std::endl
+                  << "variance: "
+                  << (sample.sampleSumSq - sample.sampleSum * sample.sampleSum / N) / N << std::endl
+                  << "cost per sample: " << sample.CostSum / N << std::endl;
     }
 
 }  // namespace ippl

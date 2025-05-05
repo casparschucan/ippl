@@ -7,8 +7,10 @@
 #define IPPL_POISSON_FEYNMAN_KAC
 
 #include "Kokkos_Core.hpp"
+#include "Kokkos_Core_fwd.hpp"
 
 #include <cassert>
+#include <ostream>
 
 #include "Types/Vector.h"
 
@@ -17,6 +19,7 @@
 #include "Kokkos_Complex.hpp"
 #include "Kokkos_Macros.hpp"
 #include "Kokkos_MathematicalConstants.hpp"
+#include "Kokkos_MinMax.hpp"
 #include "Kokkos_Random.hpp"
 #include "ParameterList.h"
 #include "Poisson.h"
@@ -40,12 +43,43 @@ namespace ippl {
         struct WosSample {
             Tlhs sample;
             WorkType work;
+
+            KOKKOS_INLINE_FUNCTION WosSample& operator+=(const WosSample& rhs) {
+                this->sample += rhs.sample;
+                this->work += rhs.work;
+                return *this;
+            }
+
+            KOKKOS_INLINE_FUNCTION WosSample operator-(const WosSample& rhs) {
+                WosSample res;
+                res.sample = this->sample - rhs.sample;
+                res.work   = Kokkos::max(this->sample, rhs.sample);
+                return res;
+            }
         };
-        KOKKOS_INLINE_FUNCTION WosSample& operator+=(const WosSample& rhs) {
-            this->sample += rhs.sample;
-            this->work += rhs.work;
-            return *this;
-        }
+
+        struct MultilevelSum {
+            Tlhs sampleSum;
+            Tlhs sampleSumSq;
+            WorkType CostSum;
+            size_t Nsamples;
+
+            KOKKOS_INLINE_FUNCTION MultilevelSum& operator+=(const WosSample& sample) {
+                this->sampleSum += sample.sample;
+                this->sampleSumSq += sample.sample * sample.sample;
+                this->CostSum += sample.work;
+                this->Nsamples += 1;
+                return *this;
+            }
+
+            KOKKOS_INLINE_FUNCTION MultilevelSum& operator+=(const MultilevelSum& rhs) {
+                this->sampleSum += rhs.sampleSum;
+                this->sampleSumSq += rhs.sampleSumSq;
+                this->CostSum += rhs.CostSum;
+                this->Nsamples += rhs.Nsamples;
+                return *this;
+            }
+        };
 
         PoissonFeynmanKac()
             : Base() {
@@ -140,6 +174,76 @@ namespace ippl {
             result /= N;
             return result;
         }
+
+        KOKKOS_INLINE_FUNCTION WosSample correlatedWoS(Vector_t x0, size_t level) {
+            assert(level > 0 && "level 0 shouldn't be correlated");
+            WosSample sampleCoarse;
+            sampleCoarse.work   = 0;
+            sampleCoarse.sample = 0;
+
+            WosSample sampleFine;
+            sampleFine.work   = 0;
+            sampleFine.sample = 0;
+
+            Vector_t x = x0;
+
+            bool coarseIn = true;
+
+            Tlhs deltaCoarse = delta0_m / Kokkos::pow(16, level - 1);
+            Tlhs deltaFine   = deltaCoarse / 16;
+
+            while (true) {
+                Tlhs distance = getDistanceToBoundary(x);
+                // sample the offset by sampling the sphere with radius distance
+                Vector_t offset = sampleSurface(distance);
+                Vector_t x_next = x + offset;
+                // check if we are in the domain
+                assert(isInDomain(x_next) && "sampled point is outside the domain");
+
+                if (distance < deltaFine) {
+                    // if we are close to the boundary, we stop the walk
+                    x = x_next;
+                    break;
+                }
+                if (distance < deltaCoarse) {
+                    coarseIn = false;
+                }
+
+                // sample the Green's function density
+                Vector_t y_j = x + sampleGreenDensity(distance);
+
+                if (coarseIn) {
+                    sampleCoarse.sample += sphereVolume_s * distance * distance * interpolate(y_j);
+                }
+
+                sampleFine.sample += sphereVolume_s * distance * distance * interpolate(y_j);
+
+                // calculate the work done
+                sampleCoarse.work += 2 * Dim;
+                sampleFine.work += 2 * Dim;
+
+                x = x_next;
+            }
+            return sampleFine - sampleCoarse;
+        }
+
+        KOKKOS_INLINE_FUNCTION MultilevelSum solvePointAtLevel(Vector_t x, size_t level, size_t N) {
+            // check if the point is in the domain
+            assert(isInDomain(x) && "point is outside the domain");
+            // collect N WoS samples and average the results
+            MultilevelSum result;
+            for (size_t i = 0; i < N; ++i) {
+                if (level == 0) {
+                    result += WoS(x);
+                    continue;
+                }
+
+                result += correlatedWoS(x, level);
+            }
+            return result;
+        }
+
+        KOKKOS_INLINE_FUNCTION Tlhs solvePointMultilevel(Vector_t x) {}
 
         /**
          * @brief Executes the walk on spheres algorithm from a starting position x0
