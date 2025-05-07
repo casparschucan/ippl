@@ -127,6 +127,15 @@ namespace ippl {
             Nsamples_m      = this->params_m.template get<int>("N_samples");
         }
 
+        KOKKOS_INLINE_FUNCTION double sinRhs(Vector_t x) {
+            double pi  = Kokkos::numbers::pi_v<double>;
+            double res = pi * pi * Dim;
+            for (unsigned int i = 0; i < Dim; i++) {
+                res *= Kokkos::sin(pi * x[i]);
+            }
+            return res;
+        }
+
         void solve() override {
             // collect useful parameters from the lhs field
             using index_array_type = typename ippl::RangePolicy<Dim>::index_array_type;
@@ -186,8 +195,10 @@ namespace ippl {
 
             bool coarseIn = true;
 
-            Tlhs deltaCoarse = delta0_m / Kokkos::pow(4, level - 1);
-            Tlhs deltaFine   = deltaCoarse / 4;
+            double delta_ratio = 16;
+
+            Tlhs deltaCoarse = delta0_m / Kokkos::pow(delta_ratio, level - 1);
+            Tlhs deltaFine   = deltaCoarse / delta_ratio;
 
             while (true) {
                 Tlhs distance = getDistanceToBoundary(x);
@@ -210,7 +221,7 @@ namespace ippl {
                 Vector_t y_j = x + sampleGreenDensity(distance);
 
                 if (!coarseIn) {
-                    sample.sample += sphereVolume_s * distance * distance * interpolate(y_j);
+                    sample.sample += sphereVolume_s * distance * distance * sinRhs(y_j);
                 }
 
                 // calculate the work done
@@ -312,7 +323,7 @@ namespace ippl {
                 // estimate the convergence rate as the difference between the last two levels
                 Tlhs av1 = sum(curMaxLevel - 1) / Ns(curMaxLevel - 1);
                 Tlhs av2 = sum(curMaxLevel - 2) / Ns(curMaxLevel - 2);
-                std::cout << "average: " << av1 << " " << av2 << std::endl;
+                std::cout << "average: " << av2 << " " << av1 << std::endl;
                 Tlhs alpha = Kokkos::log2(Kokkos::abs(av2 / av1));
                 std::cout << "convergence rate: " << alpha << std::endl;
                 alpha = Kokkos::max(alpha, 0.5);
