@@ -107,9 +107,9 @@ namespace ippl {
             static_assert(std::is_floating_point<Tlhs>::value, "Not a floating point type");
             this->densityMax_m[0] = (2 * Dim) / ((Dim - 1) * Kokkos::pow(Dim - 1, 1 / (Dim - 2)));
             if (Dim == 2) {
-                this->densityMax_m = 4 / Kokkos::numbers::e;
+                this->densityMax_m[0] = 4 / Kokkos::numbers::e;
             }
-            for (unsigned int d = 1; d < Dim; ++d) {
+            for (unsigned int d = 1; d < Dim - 1; ++d) {
                 // calculate the normalization constant which is also the maximum
                 // of the angular densities
                 // beta function of 1/2 and (n-i)/2 which we express through the
@@ -118,13 +118,14 @@ namespace ippl {
                                  / Kokkos::tgamma((Dim - d + 1.) / 2.);
                 this->densityMax_m[d] = 1. / Z_i;
             }
-            gridSpacing_m   = this->rhs_mp->get_mesh().getMeshSpacing();
-            gridSizes_m     = this->rhs_mp->get_mesh().getGridsize();
-            origin_m        = this->rhs_mp->get_mesh().getOrigin();
-            gridMaxBounds_m = gridSizes_m * gridSpacing_m;
-            delta0_m        = this->params_m.template get<Tlhs>("delta0");
-            epsilon_m       = this->params_m.template get<Tlhs>("tolerance");
-            Nsamples_m      = this->params_m.template get<int>("N_samples");
+            densityMax_m[Dim - 1] = 1 / (2 * Kokkos::numbers::pi_v<Tlhs>);
+            gridSpacing_m         = this->rhs_mp->get_mesh().getMeshSpacing();
+            gridSizes_m           = this->rhs_mp->get_mesh().getGridsize();
+            origin_m              = this->rhs_mp->get_mesh().getOrigin();
+            gridMaxBounds_m       = gridSizes_m * gridSpacing_m;
+            delta0_m              = this->params_m.template get<Tlhs>("delta0");
+            epsilon_m             = this->params_m.template get<Tlhs>("tolerance");
+            Nsamples_m            = this->params_m.template get<int>("N_samples");
         }
 
         KOKKOS_INLINE_FUNCTION double sinRhs(Vector_t x) {
@@ -191,11 +192,13 @@ namespace ippl {
             sample.work   = 0;
             sample.sample = 0;
 
+            Ncorr++;
+
             Vector_t x = x0;
 
             bool coarseIn = true;
 
-            double delta_ratio = 16;
+            double delta_ratio = 4;
 
             Tlhs deltaCoarse = delta0_m / Kokkos::pow(delta_ratio, level - 1);
             Tlhs deltaFine   = deltaCoarse / delta_ratio;
@@ -213,8 +216,9 @@ namespace ippl {
                     x = x_next;
                     break;
                 }
-                if (distance < deltaCoarse) {
+                if (distance < deltaCoarse && coarseIn) {
                     coarseIn = false;
+                    Nuncorr++;
                 }
 
                 // sample the Green's function density
@@ -270,7 +274,7 @@ namespace ippl {
             }
 
             bool converged     = false;
-            size_t curMaxLevel = 3;
+            size_t curMaxLevel = maxLevel;
             while (!converged && curMaxLevel <= maxLevel) {
                 std::cout << "current level: " << curMaxLevel << std::endl;
                 // sample the estimated samples at the current level
@@ -279,6 +283,9 @@ namespace ippl {
                     sum(i) += sample.sampleSum;
                     sumSq(i) += sample.sampleSumSq;
                     costs(i) += sample.CostSum;
+                    // std::cout << "level: " << i << " samples: " << Ns(i)
+                    //<< " average: " << sum(i) / Ns(i)
+                    //<< " sq average: " << sumSq(i) / Ns(i) << std::endl;
                 }
 
                 Tlhs varCostSumSq = 0;
@@ -287,7 +294,8 @@ namespace ippl {
                     Tlhs variance = (sumSq(i) - sum(i) * sum(i) / Ns(i)) / Ns(i);
                     assert(variance > 0 && "variance is negative");
                     if (variance < 0) {
-                        std::cout << "variance too smol: " << variance << std::endl;
+                        std::cout << "variance too smol: " << variance << "at level: " << i
+                                  << std::endl;
                         variance = 0;
                     }
                     Tlhs costPerSample = costs(i) / Ns(i);
@@ -298,13 +306,11 @@ namespace ippl {
                 // calculate the number of samples we need to take at each level
                 for (unsigned i = 0; i < curMaxLevel; ++i) {
                     // calculate the variance
-                    Tlhs variance = (sumSq(i) - sum(i) * sum(i) / Ns(i)) / Ns(i);
-                    std::cout << "variance: " << variance << std::endl;
+                    Tlhs variance      = (sumSq(i) - sum(i) * sum(i) / Ns(i)) / Ns(i);
                     Tlhs costPerSample = costs(i) / Ns(i);
                     // estimate the number of samples we optimally take
                     size_t optimalNSamples = (Kokkos::sqrt(variance / costPerSample) * varCostSumSq)
                                              / (epsilon_m * epsilon_m);
-                    std::cout << "optimal number of samples: " << optimalNSamples << std::endl;
                     if (optimalNSamples > Ns(i)) {
                         Ndiff(i) = optimalNSamples - Ns(i);
                         Ns(i)    = optimalNSamples;
@@ -313,25 +319,28 @@ namespace ippl {
                     }
                     // add samples as needed
                     MultilevelSum sample = solvePointAtLevel(x, i, Ndiff(i));
+                    // std::cout << sample.sampleSum << std::endl;
                     sum(i) += sample.sampleSum;
                     sumSq(i) += sample.sampleSumSq;
                     costs(i) += sample.CostSum;
                     std::cout << "level: " << i << " samples: " << Ns(i)
-                              << " average: " << sum(i) / Ns(i) << std::endl;
+                              << " average: " << sum(i) / Ns(i)
+                              << " sq average: " << sumSq(i) / Ns(i) << std::endl;
+                    Ndiff(i) = 0;
                 }
 
                 // estimate the convergence rate as the difference between the last two levels
                 Tlhs av1 = sum(curMaxLevel - 1) / Ns(curMaxLevel - 1);
                 Tlhs av2 = sum(curMaxLevel - 2) / Ns(curMaxLevel - 2);
-                std::cout << "average: " << av2 << " " << av1 << std::endl;
+                // std::cout << "average: " << av2 << " " << av1 << std::endl;
                 Tlhs alpha = Kokkos::log2(Kokkos::abs(av2 / av1));
                 std::cout << "convergence rate: " << alpha << std::endl;
                 alpha = Kokkos::max(alpha, 0.5);
 
                 Tlhs estError = Kokkos::abs(av1) / (Kokkos::pow(2, alpha) - 1);
-                std::cout << "estimated error: " << estError * Kokkos::sqrt(2) << std::endl;
+                std::cout << "estimated error: " << estError * 2 << std::endl;
                 if (estError * 2 < epsilon_m) {
-                    std::cout << "converged with error: " << estError << std::endl;
+                    // std::cout << "converged with error: " << estError << std::endl;
                     converged = true;
                 } else {
                     // increase the number of levels
@@ -344,6 +353,9 @@ namespace ippl {
             for (unsigned i = 0; i < curMaxLevel; ++i) {
                 result += sum(i) / Ns(i);
             }
+            std::cout << "uncorrelation ratio: " << (double)Nuncorr / Ncorr
+                      << " Wos correlated calls: " << Ncorr << " uncorrelated cases: " << Nuncorr
+                      << std::endl;
             return result;
         }
 
@@ -471,9 +483,9 @@ namespace ippl {
     protected:
         void setDefaultParameters() override {
             this->params_m.add("max_levels", 10);
-            this->params_m.add("N_samples", 100000);
+            this->params_m.add("N_samples", 100000000);
             this->params_m.add("tolerance", (Tlhs)1e-3);
-            this->params_m.add("delta0", (Tlhs)1e-2);
+            this->params_m.add("delta0", (Tlhs)0.00001);
         }
 
         /**
@@ -585,6 +597,9 @@ namespace ippl {
 
         // Number of samples per point
         size_t Nsamples_m;
+
+        size_t Ncorr   = 0;
+        size_t Nuncorr = 0;
     };
 }  // namespace ippl
 
