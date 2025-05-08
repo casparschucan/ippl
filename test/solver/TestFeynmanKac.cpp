@@ -1,18 +1,16 @@
 
 // TestFeynmanKac
 // This program tests the FeynmanKacSolver class with a homogeneous
-// Dirichlet boundary
+// Dirichlet boundary for different dimensions
 // The solve is iterated 5 times for the purpose of timing studies.
 //   Usage:
-//     srun ./TestFeynmanKac <nx> <ny> <nz> <N> <delta0> --info 5
-//     nx        = No. cell-centered points in the x-direction
-//     ny        = No. cell-centered points in the y-direction
-//     nz        = No. cell-centered points in the z-direction
+//     srun ./TestFeynmanKac <nx> <N> <delta0> --info 5
+//     nx        = No. cell-centered points in the each dimension-direction
 //     N         = No. samples per cell-centered point
 //     delta0    = the cutoff distance to the boundary
 //
 //     Example:
-//       srun ./TestFeynmanKac 64 64 64 10000 0.01 --info 5
+//       srun ./TestFeynmanKac 64 10000 0.01 --info 5
 //
 //
 
