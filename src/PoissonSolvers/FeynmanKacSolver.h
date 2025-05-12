@@ -11,6 +11,7 @@
 
 #include <cassert>
 #include <ostream>
+#include <vector>
 
 #include "Types/Vector.h"
 
@@ -89,15 +90,15 @@ namespace ippl {
         }
 
         PoissonFeynmanKac(lhs_type& lhs, rhs_type& rhs, unsigned seed = 42)
-            : randomPool_m(seed)
-            , Base(lhs, rhs) {
+            : Base(lhs, rhs)
+            , randomPool_m(seed) {
             setDefaultParameters();
             initialize();
         }
 
         PoissonFeynmanKac(lhs_type& lhs, rhs_type& rhs, ParameterList& params, unsigned seed = 42)
-            : randomPool_m(seed)
-            , Base(lhs, rhs) {
+            : Base(lhs, rhs)
+            , randomPool_m(seed) {
             setDefaultParameters();
             this->params_m.merge(params);
             initialize();
@@ -179,8 +180,8 @@ namespace ippl {
             Tlhs result = 0;
             // collect N WoS samples and average the results
             Kokkos::parallel_reduce(
-                "homogeneousWoSTest", N,
-                KOKKOS_LAMBDA(const int i, double& val) { val += WoS(x).sample; },
+                "homogeneousWoSTest", Kokkos::RangePolicy<>(0, N),
+                KOKKOS_LAMBDA(const int /*i*/, double& val) { val += WoS(x).sample; },
                 Kokkos::Sum<double>(result));
             result /= N;
             return result;
@@ -199,7 +200,7 @@ namespace ippl {
 
             bool coarseIn = true;
 
-            double delta_ratio = 4;
+            double delta_ratio = 16;
 
             Tlhs deltaCoarse = delta0_m / Kokkos::pow(delta_ratio, level - 1);
             Tlhs deltaFine   = deltaCoarse / delta_ratio;
@@ -259,6 +260,7 @@ namespace ippl {
 
         KOKKOS_FUNCTION Tlhs solvePointMultilevel(Vector_t x) {
             size_t maxLevel = this->params_m.template get<int>("max_levels");
+            epsilon_m       = this->params_m.template get<Tlhs>("tolerance");
             Kokkos::View<size_t*> Ns("number of samples taken per level", maxLevel);
             Kokkos::View<size_t*> Ndiff("number of samples we need additionally per level",
                                         maxLevel);
@@ -275,10 +277,10 @@ namespace ippl {
             }
 
             bool converged     = false;
-            size_t curMaxLevel = maxLevel;
-            while (!converged && curMaxLevel <= maxLevel) {
-                std::cout << "current level: " << curMaxLevel << std::endl;
-                // sample the estimated samples at the current level
+            size_t curMaxLevel = 3;
+            while (!converged && curMaxLevel < maxLevel) {
+                // std::cout << "current level: " << curMaxLevel << std::endl;
+                //  sample the estimated samples at the current level
                 for (unsigned i = 0; i < curMaxLevel; ++i) {
                     MultilevelSum sample = solvePointAtLevel(x, i, Ndiff(i));
                     sum(i) += sample.sampleSum;
@@ -324,22 +326,26 @@ namespace ippl {
                     sum(i) += sample.sampleSum;
                     sumSq(i) += sample.sampleSumSq;
                     costs(i) += sample.CostSum;
-                    std::cout << "level: " << i << " samples: " << Ns(i)
-                              << " average: " << sum(i) / Ns(i)
-                              << " sq average: " << sumSq(i) / Ns(i) << std::endl;
+                    // std::cout << "level: " << i << " samples: " << Ns(i)
+                    //<< " average: " << sum(i) / Ns(i)
+                    //<< " sq average: " << sumSq(i) / Ns(i) << std::endl;
                     Ndiff(i) = 0;
                 }
 
                 // estimate the convergence rate as the difference between the last two levels
                 Tlhs av1 = sum(curMaxLevel - 1) / Ns(curMaxLevel - 1);
-                Tlhs av2 = sum(curMaxLevel - 2) / Ns(curMaxLevel - 2);
+                std::vector<Tlhs> logErrs(curMaxLevel - 1);
+                for (unsigned i = 0; i < curMaxLevel - 1; ++i) {
+                    Tlhs average = sum(i + 1) / Ns(i + 1);
+                    logErrs[i]   = Kokkos::log2(average);
+                }
                 // std::cout << "average: " << av2 << " " << av1 << std::endl;
-                Tlhs alpha = Kokkos::log2(Kokkos::abs(av2 / av1));
-                std::cout << "convergence rate: " << alpha << std::endl;
+                Tlhs alpha = -linFit(logErrs);
+                // std::cout << "convergence rate: " << alpha << std::endl;
                 alpha = Kokkos::max(alpha, 0.5);
 
                 Tlhs estError = Kokkos::abs(av1) / (Kokkos::pow(2, alpha) - 1);
-                std::cout << "estimated error: " << estError * 2 << std::endl;
+                // std::cout << "estimated error: " << estError * 2 << std::endl;
                 if (estError * 2 < epsilon_m) {
                     // std::cout << "converged with error: " << estError << std::endl;
                     converged = true;
@@ -354,9 +360,6 @@ namespace ippl {
             for (unsigned i = 0; i < curMaxLevel; ++i) {
                 result += sum(i) / Ns(i);
             }
-            std::cout << "uncorrelation ratio: " << (double)Nuncorr / Ncorr
-                      << " Wos correlated calls: " << Ncorr << " uncorrelated cases: " << Nuncorr
-                      << std::endl;
             return result;
         }
 
@@ -410,7 +413,7 @@ namespace ippl {
             Vector_t direction;
 
             // Generate n independent standard normal variables
-            for (int i = 0; i < Dim; i++) {
+            for (unsigned i = 0; i < Dim; i++) {
                 // generate normal distribution
                 direction[i] = generator.normal();
             }
@@ -578,6 +581,27 @@ namespace ippl {
                 cartesian[Dim - 1] *= Kokkos::sin(spherical[i]);
             }
             return cartesian;
+        }
+
+        /**
+         * @brief Function to fit a line to the data
+         * @param logErrs vector of log2 errors
+         * @return slope of the line
+         */
+        KOKKOS_FUNCTION Tlhs linFit(std::vector<Tlhs> logErrs) {
+            Tlhs sumX  = 0;
+            Tlhs sumY  = 0;
+            Tlhs sumXY = 0;
+            Tlhs sumX2 = 0;
+            for (unsigned i = 0; i < logErrs.size(); ++i) {
+                sumX += i;
+                sumY += logErrs.at(i);
+                sumXY += i * logErrs.at(i);
+                sumX2 += i * i;
+            }
+            Tlhs slope =
+                (logErrs.size() * sumXY - sumX * sumY) / (logErrs.size() * sumX2 - sumX * sumX);
+            return slope;
         }
 
         // The maxima of the different edge densities for the coordinates

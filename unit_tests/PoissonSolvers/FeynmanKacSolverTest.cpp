@@ -113,9 +113,9 @@ namespace ippl {
 
     TEST_F(PoissonFeynmanKacTest, homogeneousWoSVarianceTest) {
         Vector<double, dim> x(.5);
-        const double pi = Kokkos::numbers::pi_v<double>;
-        double expected = sin(x[0], x[1], x[2]) / (pi * pi * 3);
-        size_t N        = 1e6;
+        // const double pi = Kokkos::numbers::pi_v<double>;
+        // double expected = sin(x[0], x[1], x[2]) / (pi * pi * 3);
+        size_t N = 1e6;
         for (int i = 0; i < 6; i++) {
             double delta = std::pow(10, -i - 1);
             std::cout << "delta: " << delta << std::flush;
@@ -135,9 +135,9 @@ namespace ippl {
 
     TEST_F(PoissonFeynmanKacTest, homogeneousWoSPointTest) {
         Vector<double, dim> x(.5);
-        const double pi = Kokkos::numbers::pi_v<double>;
-        double expected = sin(x[0], x[1], x[2]) / (pi * pi * 3);
-        size_t N        = 1e8;
+        // const double pi = Kokkos::numbers::pi_v<double>;
+        // double expected = sin(x[0], x[1], x[2]) / (pi * pi * 3);
+        size_t N = 1e8;
 
         for (int i = 0; i < 6; i++) {
             double delta = std::pow(10, -i - 1);
@@ -153,9 +153,9 @@ namespace ippl {
     TEST_F(PoissonFeynmanKacTest, homogeneousWoSTest) {
         feynmanKac.solve();
 
-        auto field_view  = fieldLhs->getView();
-        const int nghost = fieldLhs->getNghost();
-        const auto& ldom = flayoutLhs.getLocalNDIndex();
+        auto field_view = fieldLhs->getView();
+        // const int nghost = fieldLhs->getNghost();
+        // const auto& ldom = flayoutLhs.getLocalNDIndex();
 
         Vector<double, dim> hx(0.25);
         Vector<double, dim> origin(0.0);
@@ -203,9 +203,12 @@ namespace ippl {
     }
     TEST_F(PoissonFeynmanKacTest, MLMCTest) {
         Vector<double, dim> x = {0.5, 0.5, 0.5};
-        int Niter             = 1;
-        double delta          = 1e-3;
+        int Niter             = 10;
+        double delta          = 1e-2;
+        double epsilon        = 0.5e-4;
+        // unsigned Nstart      = 10000;
         feynmanKac.updateParameter("delta0", delta);
+        feynmanKac.updateParameter("tolerance", epsilon);
         std::vector<double> Nsamples(Niter);
 
         std::cout << "sampling " << Niter << " samples" << std::endl;
@@ -218,8 +221,8 @@ namespace ippl {
         double mean   = sum / Niter;
         double sq_sum = std::inner_product(Nsamples.begin(), Nsamples.end(), Nsamples.begin(), 0.0);
         double stdev  = std::sqrt(sq_sum / Niter - mean * mean);
-        std::cout << "mean: " << mean << std::endl;
-        std::cout << "stdev: " << stdev << std::endl;
+        std::cout << "mean: " << mean << " error: " << std::abs(mean - 1.) << std::endl;
+        std::cout << " stdev: " << stdev << std::endl;
         std::cout << "variance: " << stdev * stdev << std::endl;
         EXPECT_NEAR(stdev, 0, 1e-4);
     }
