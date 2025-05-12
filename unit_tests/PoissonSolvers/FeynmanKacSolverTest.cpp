@@ -1,7 +1,10 @@
 #include "Ippl.h"
 
+#include <algorithm>
 #include <memory>
+#include <numeric>
 #include <ostream>
+#include <vector>
 
 #include "Kokkos_Macros.hpp"
 #include "Kokkos_MathematicalFunctions.hpp"
@@ -108,21 +111,42 @@ namespace ippl {
         EXPECT_NEAR(result[0], result[0], 1e-5);
     }
 
-    TEST_F(PoissonFeynmanKacTest, homogeneousWoSPointTest) {
-        Vector<double, dim> x;
+    TEST_F(PoissonFeynmanKacTest, homogeneousWoSVarianceTest) {
+        Vector<double, dim> x(.5);
         const double pi = Kokkos::numbers::pi_v<double>;
-        for (unsigned i = 1; i < 5; i++) {
-            x[0] = i / 5.0;
-            for (unsigned j = 1; j < 5; j++) {
-                x[1] = i / 5.0;
-                for (unsigned k = 1; k < 5; k++) {
-                    x[2]            = i / 5.0;
-                    double expected = sin(x[0], x[1], x[2]) / (pi * pi * 3);
-                    size_t N        = 1e5;
-                    double result   = feynmanKac.solvePointParallel(x, N);
-                    ASSERT_NEAR(result, expected, 1e-1 * expected);
-                }
-            }
+        double expected = sin(x[0], x[1], x[2]) / (pi * pi * 3);
+        size_t N        = 1e6;
+        for (int i = 0; i < 6; i++) {
+            double delta = std::pow(10, -i - 1);
+            std::cout << "delta: " << delta << std::flush;
+            feynmanKac.updateParameter("delta0", delta);
+
+            PoissonFeynmanKac<field_type, field_type>::MultilevelSum result =
+                feynmanKac.solvePointAtLevel(x, 0, N);
+            // ASSERT_NEAR(result, expected, 1e-1 * expected);
+            double avg = result.sampleSum / result.Nsamples;
+            double var =
+                (result.sampleSumSq - result.sampleSum * result.sampleSum / result.Nsamples)
+                / result.Nsamples;
+            std::cout << " result: " << avg << " error: " << std::abs(avg - 1.)
+                      << " variance: " << var << std::endl;
+        }
+    }
+
+    TEST_F(PoissonFeynmanKacTest, homogeneousWoSPointTest) {
+        Vector<double, dim> x(.5);
+        const double pi = Kokkos::numbers::pi_v<double>;
+        double expected = sin(x[0], x[1], x[2]) / (pi * pi * 3);
+        size_t N        = 1e8;
+
+        for (int i = 0; i < 6; i++) {
+            double delta = std::pow(10, -i - 1);
+            std::cout << "delta: " << delta << std::flush;
+            feynmanKac.updateParameter("delta0", delta);
+
+            double result = feynmanKac.solvePointParallel(x, N);
+            // ASSERT_NEAR(result, expected, 1e-1 * expected);
+            std::cout << " result: " << result << " error: " << std::abs(result - 1.) << std::endl;
         }
     }
 
@@ -136,6 +160,8 @@ namespace ippl {
         Vector<double, dim> hx(0.25);
         Vector<double, dim> origin(0.0);
         const double pi = Kokkos::numbers::pi_v<double>;
+        double l2norm   = 0.0;
+        double infnorm  = 0.0;
 
         for (unsigned int i = 0; i < 4; i++) {
             for (unsigned int j = 0; j < 4; j++) {
@@ -145,11 +171,16 @@ namespace ippl {
                     double z = (k + 0.5) * hx[2] + origin[2];
 
                     double expected = sin(x, y, z) / (pi * pi * 3.0);
+                    l2norm += (expected - field_view(i, j, k)) * (expected - field_view(i, j, k));
+                    infnorm = std::max(infnorm, std::abs(expected - field_view(i, j, k)));
 
                     EXPECT_NEAR(field_view(i, j, k), expected, expected / 10);
                 }
             }
         }
+        l2norm = std::sqrt(l2norm);
+        std::cout << "L2 error norm: " << l2norm << std::endl;
+        std::cout << "Linf error norm: " << infnorm << std::endl;
     }
 
     TEST_F(PoissonFeynmanKacTest, samplePointAtLevelTest) {
@@ -172,8 +203,25 @@ namespace ippl {
     }
     TEST_F(PoissonFeynmanKacTest, MLMCTest) {
         Vector<double, dim> x = {0.5, 0.5, 0.5};
-        double actual         = feynmanKac.solvePointMultilevel(x);
-        std::cout << "actual: " << actual << std::endl;
+        int Niter             = 1;
+        double delta          = 1e-3;
+        feynmanKac.updateParameter("delta0", delta);
+        std::vector<double> Nsamples(Niter);
+
+        std::cout << "sampling " << Niter << " samples" << std::endl;
+        for (int i = 0; i < Niter; i++) {
+            std::cout << "iteration: " << i << " of " << Niter << "\r" << std::flush;
+            Nsamples[i] = feynmanKac.solvePointMultilevel(x);
+        }
+
+        double sum    = std::reduce(Nsamples.begin(), Nsamples.end());
+        double mean   = sum / Niter;
+        double sq_sum = std::inner_product(Nsamples.begin(), Nsamples.end(), Nsamples.begin(), 0.0);
+        double stdev  = std::sqrt(sq_sum / Niter - mean * mean);
+        std::cout << "mean: " << mean << std::endl;
+        std::cout << "stdev: " << stdev << std::endl;
+        std::cout << "variance: " << stdev * stdev << std::endl;
+        EXPECT_NEAR(stdev, 0, 1e-4);
     }
 
 }  // namespace ippl

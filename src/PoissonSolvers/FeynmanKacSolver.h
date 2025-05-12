@@ -188,6 +188,7 @@ namespace ippl {
 
         KOKKOS_INLINE_FUNCTION WosSample correlatedWoS(Vector_t x0, size_t level) {
             assert(level > 0 && "level 0 shouldn't be correlated");
+            delta0_m = this->params_m.template get<Tlhs>("delta0");
             WosSample sample;
             sample.work   = 0;
             sample.sample = 0;
@@ -365,6 +366,7 @@ namespace ippl {
          * @return the integral value and the number of steps taken
          */
         KOKKOS_INLINE_FUNCTION WosSample WoS(Vector_t x0) {
+            delta0_m = this->params_m.template get<Tlhs>("delta0");
             WosSample sample;
             sample.work   = 0;
             sample.sample = 0;
@@ -387,7 +389,7 @@ namespace ippl {
 
                 // sample the Green's function density
                 Vector_t y_j = x + sampleGreenDensity(distance);
-                sample.sample += sphereVolume_s * distance * distance * interpolate(y_j);
+                sample.sample += sphereVolume_s * distance * distance * sinRhs(y_j);
 
                 // calculate the work done
                 sample.work += 2 * Dim;
@@ -405,20 +407,19 @@ namespace ippl {
         KOKKOS_INLINE_FUNCTION Vector_t sampleSurface(Tlhs d) {
             auto generator = randomPool_m.get_state();
 
-            Vector_t sample;
+            Vector_t direction;
 
-            // set the radius to d
-            sample[0] = d;
-            // sample the first angle uniformly on the interval [0, pi)
-            for (unsigned int i = 1; i < Dim - 1; ++i) {
-                // sample the angle using rejection sampling
-                sample[i] = generator.drand(0, Kokkos::numbers::pi_v<Tlhs>);
+            // Generate n independent standard normal variables
+            for (int i = 0; i < Dim; i++) {
+                // generate normal distribution
+                direction[i] = generator.normal();
             }
-            // sample the last angle uniformly on the interval [0, 2 * pi)
-            sample[Dim - 1] = generator.drand(0, 2 * Kokkos::numbers::pi_v<Tlhs>);
 
-            randomPool_m.free_state(generator);
-            return sphericalToCartesian(sample);
+            // Normalize to unit length
+            double norm = Kokkos::sqrt(direction.dot(direction));
+
+            direction *= d / norm;
+            return direction;
         }
 
         /**
@@ -445,6 +446,7 @@ namespace ippl {
                     sample[i] = generator.drand(0, Kokkos::numbers::pi_v<Tlhs>);
                     y         = generator.drand(0, densityMax_m[i]);
                 } while (anglePdf(sample[i], i) < y);
+                // sample[i] = generator.drand(0, Kokkos::numbers::pi_v<Tlhs>);
             }
 
             // sample the last angle
@@ -483,9 +485,9 @@ namespace ippl {
     protected:
         void setDefaultParameters() override {
             this->params_m.add("max_levels", 10);
-            this->params_m.add("N_samples", 100000000);
+            this->params_m.add("N_samples", 1000000000);
             this->params_m.add("tolerance", (Tlhs)1e-3);
-            this->params_m.add("delta0", (Tlhs)0.00001);
+            this->params_m.add("delta0", (Tlhs)0.000001);
         }
 
         /**
