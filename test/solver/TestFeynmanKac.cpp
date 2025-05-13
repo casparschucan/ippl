@@ -173,12 +173,7 @@ KOKKOS_FUNCTION void dimTest(int Nr, int Nsamples, double delta0, Inform& msg) {
 
         IpplTimings::startTimer(CGTimer);
 
-        try {
-            CGSolver.solve();
-        } catch (IpplException e) {
-            msg << e.what() << endl;
-            msg << e.where() << endl;
-        }
+        CGSolver.solve();
         IpplTimings::stopTimer(CGTimer);
 
         // compute relative error norm for potential
