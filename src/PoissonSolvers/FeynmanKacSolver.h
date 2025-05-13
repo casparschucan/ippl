@@ -297,8 +297,8 @@ namespace ippl {
                     Tlhs variance = (sumSq(i) - sum(i) * sum(i) / Ns(i)) / Ns(i);
                     assert(variance > 0 && "variance is negative");
                     if (variance < 0) {
-                        std::cout << "variance too smol: " << variance << "at level: " << i
-                                  << std::endl;
+                        // std::cout << "variance too smol: " << variance << "at level: " << i
+                        //<< std::endl;
                         variance = 0;
                     }
                     Tlhs costPerSample = costs(i) / Ns(i);
@@ -360,6 +360,8 @@ namespace ippl {
             for (unsigned i = 0; i < curMaxLevel; ++i) {
                 result += sum(i) / Ns(i);
             }
+
+            // std::cout << "maximal level used: " << curMaxLevel << std::endl;
             return result;
         }
 
@@ -474,8 +476,8 @@ namespace ippl {
             for (unsigned int d = 0; d < Dim; ++d) {
                 // check if the index is out of bounds
                 if (index[d] >= gridSizes_m[d]) {
-                    std::cout << "index: " << index[d] << " grid_sizes: " << gridSizes_m[d]
-                              << std::endl;
+                    // std::cout << "index: " << index[d] << " grid_sizes: " << gridSizes_m[d]
+                    //<< std::endl;
                     index[d]--;
                 }
                 assert(index[d] < gridSizes_m[d] && index[d] >= 0 && "index out of bounds");

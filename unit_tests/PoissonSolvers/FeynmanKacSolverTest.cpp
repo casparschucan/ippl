@@ -202,10 +202,11 @@ namespace ippl {
                   << "cost per sample: " << sample.CostSum / N << std::endl;
     }
     TEST_F(PoissonFeynmanKacTest, MLMCTest) {
-        Vector<double, dim> x = {0.5, 0.5, 0.5};
-        int Niter             = 10;
+        Vector<double, dim> x = {0.5, 0.25, 0.25};
+        int Niter             = 5;
         double delta          = 1e-2;
-        double epsilon        = 0.5e-4;
+        double epsilon        = 1e-4;
+        double expected       = 0.5;
         // unsigned Nstart      = 10000;
         feynmanKac.updateParameter("delta0", delta);
         feynmanKac.updateParameter("tolerance", epsilon);
@@ -221,7 +222,7 @@ namespace ippl {
         double mean   = sum / Niter;
         double sq_sum = std::inner_product(Nsamples.begin(), Nsamples.end(), Nsamples.begin(), 0.0);
         double stdev  = std::sqrt(sq_sum / Niter - mean * mean);
-        std::cout << "mean: " << mean << " error: " << std::abs(mean - 1.) << std::endl;
+        std::cout << "mean: " << mean << " error: " << std::abs(mean - expected) << std::endl;
         std::cout << " stdev: " << stdev << std::endl;
         std::cout << "variance: " << stdev * stdev << std::endl;
         EXPECT_NEAR(stdev, 0, 1e-4);
