@@ -156,8 +156,8 @@ KOKKOS_FUNCTION void dimTest(int Nr, int Nsamples, double delta0, Inform& msg) {
     std::string CGTimer_str = "CGTimer";
     CGTimer_str.append(Dimstring);
 
-    static IpplTimings::TimerRef WoSTimer = IpplTimings::getTimer(WosTimer_str.c_str());
-    static IpplTimings::TimerRef CGTimer  = IpplTimings::getTimer(CGTimer_str.c_str());
+    IpplTimings::TimerRef WoSTimer = IpplTimings::getTimer(WosTimer_str.c_str());
+    IpplTimings::TimerRef CGTimer  = IpplTimings::getTimer(CGTimer_str.c_str());
 
     ippl::Vector<double, Dim> test_pos(.5);
     // iterate over 5 timesteps
