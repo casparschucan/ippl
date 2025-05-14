@@ -40,7 +40,7 @@ namespace ippl {
         using DiagRet            = double;
         using WorkType           = unsigned int;
         using GeneratorPool      = typename Kokkos::Random_XorShift64_Pool<>;
-        using Vector_t           = ippl::Vector<double, Dim>;
+        using Vector_t           = ippl::Vector<Tlhs, Dim>;
 
         struct WosSample {
             Tlhs sample;
@@ -129,9 +129,9 @@ namespace ippl {
             Nsamples_m            = this->params_m.template get<int>("N_samples");
         }
 
-        KOKKOS_INLINE_FUNCTION double sinRhs(Vector_t x) {
-            double pi  = Kokkos::numbers::pi_v<double>;
-            double res = pi * pi * Dim;
+        KOKKOS_INLINE_FUNCTION Tlhs sinRhs(Vector_t x) {
+            Tlhs pi  = Kokkos::numbers::pi_v<Tlhs>;
+            Tlhs res = pi * pi * Dim;
             for (unsigned int i = 0; i < Dim; i++) {
                 res *= Kokkos::sin(pi * x[i]);
             }
@@ -181,8 +181,8 @@ namespace ippl {
             // collect N WoS samples and average the results
             Kokkos::parallel_reduce(
                 "homogeneousWoSTest", Kokkos::RangePolicy<>(0, N),
-                KOKKOS_LAMBDA(const int /*i*/, double& val) { val += WoS(x).sample; },
-                Kokkos::Sum<double>(result));
+                KOKKOS_LAMBDA(const int /*i*/, Tlhs& val) { val += WoS(x).sample; },
+                Kokkos::Sum<Tlhs>(result));
             result /= N;
             return result;
         }
@@ -200,7 +200,7 @@ namespace ippl {
 
             bool coarseIn = true;
 
-            double delta_ratio = 16;
+            Tlhs delta_ratio = 16;
 
             Tlhs deltaCoarse = delta0_m / Kokkos::pow(delta_ratio, level - 1);
             Tlhs deltaFine   = deltaCoarse / delta_ratio;
@@ -342,7 +342,7 @@ namespace ippl {
                 // std::cout << "average: " << av2 << " " << av1 << std::endl;
                 Tlhs alpha = -linFit(logErrs);
                 // std::cout << "convergence rate: " << alpha << std::endl;
-                alpha = Kokkos::max(alpha, 0.5);
+                alpha = Kokkos::max(alpha, (Tlhs)0.5);
 
                 Tlhs estError = Kokkos::abs(av1) / (Kokkos::pow(2, alpha) - 1);
                 // std::cout << "estimated error: " << estError * 2 << std::endl;
@@ -421,7 +421,7 @@ namespace ippl {
             }
 
             // Normalize to unit length
-            double norm = Kokkos::sqrt(direction.dot(direction));
+            Tlhs norm = Kokkos::sqrt(direction.dot(direction));
 
             direction *= d / norm;
             return direction;

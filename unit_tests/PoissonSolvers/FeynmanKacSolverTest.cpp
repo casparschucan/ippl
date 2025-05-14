@@ -24,9 +24,9 @@ namespace ippl {
         constexpr static unsigned int dim = 3;
         using value_type                  = double;
 
-        using mesh_type      = ippl::UniformCartesian<double, 3>;
+        using mesh_type      = ippl::UniformCartesian<value_type, 3>;
         using centering_type = typename mesh_type::DefaultCentering;
-        using field_type     = ippl::Field<double, 3, mesh_type, centering_type>;
+        using field_type     = ippl::Field<value_type, 3, mesh_type, centering_type>;
         using flayout_type   = ippl::FieldLayout<3>;
         PoissonFeynmanKacTest() {
             std::array<int, dim> points   = {256, 256, 256};
@@ -49,12 +49,12 @@ namespace ippl {
             flayoutRhs = flayout_type(MPI_COMM_WORLD, ownedInput, isParallel);
             flayoutLhs = flayout_type(MPI_COMM_WORLD, ownedInputLhs, isParallel);
 
-            double dx                  = 1.0 / double(points[0]);
-            Vector<double, dim> hx     = {dx, dx, dx};
-            Vector<double, dim> origin = {0.0, 0.0, 0.0};
+            value_type dx                  = 1.0 / value_type(points[0]);
+            Vector<value_type, dim> hx     = {dx, dx, dx};
+            Vector<value_type, dim> origin = {0.0, 0.0, 0.0};
 
-            double dxLhs              = 1.0 / double(lhsPoint[0]);
-            Vector<double, dim> hxLhs = {dxLhs, dxLhs, dxLhs};
+            value_type dxLhs              = 1.0 / value_type(lhsPoint[0]);
+            Vector<value_type, dim> hxLhs = {dxLhs, dxLhs, dxLhs};
 
             meshRhs  = mesh_type(ownedInput, hx, origin);
             fieldRhs = std::make_shared<field_type>(meshRhs, flayoutRhs, 0);
@@ -73,9 +73,9 @@ namespace ippl {
                     const int kg = k + ldom[2].first() - nghost;
 
                     // define the physical points (cell-centered)
-                    double x = (ig + 0.5) * hx[0] + origin[0];
-                    double y = (jg + 0.5) * hx[1] + origin[1];
-                    double z = (kg + 0.5) * hx[2] + origin[2];
+                    value_type x = (ig + 0.5) * hx[0] + origin[0];
+                    value_type y = (jg + 0.5) * hx[1] + origin[1];
+                    value_type z = (kg + 0.5) * hx[2] + origin[2];
 
                     field_view(i, j, k) = sin(x, y, z);
                 });
@@ -93,39 +93,39 @@ namespace ippl {
 
     TEST_F(PoissonFeynmanKacTest, seededWoS) {
         unsigned expected                                           = 90;
-        Vector<double, dim> x                                       = {0.5, 0.5, 0.5};
+        Vector<value_type, dim> x                                   = {0.5, 0.5, 0.5};
         PoissonFeynmanKac<field_type, field_type>::WosSample sample = feynmanKac.WoS(x);
         EXPECT_EQ(sample.work, expected);
         EXPECT_NEAR(sample.sample, 1.6335841, 1e-5);
     }
 
     TEST_F(PoissonFeynmanKacTest, density_seeded) {
-        Vector<double, dim> expected_sample = {0.199966, 1.0701, 3.9722};
-        Vector<double, dim> expected_result;
+        Vector<value_type, dim> expected_sample = {0.199966, 1.0701, 3.9722};
+        Vector<value_type, dim> expected_result;
         expected_result[0] = expected_sample[0] * Kokkos::cos(expected_sample[1]);
         expected_result[1] =
             expected_sample[0] * Kokkos::sin(expected_sample[1]) * Kokkos::cos(expected_sample[2]);
         expected_result[2] =
             expected_sample[0] * Kokkos::sin(expected_sample[1]) * Kokkos::sin(expected_sample[2]);
-        Vector<double, dim> result = feynmanKac.sampleGreenDensity(0.5);
+        Vector<value_type, dim> result = feynmanKac.sampleGreenDensity(0.5);
         EXPECT_NEAR(result[0], result[0], 1e-5);
     }
 
     TEST_F(PoissonFeynmanKacTest, homogeneousWoSVarianceTest) {
-        Vector<double, dim> x(.5);
-        // const double pi = Kokkos::numbers::pi_v<double>;
-        // double expected = sin(x[0], x[1], x[2]) / (pi * pi * 3);
+        Vector<value_type, dim> x(.5);
+        // const value_type pi = Kokkos::numbers::pi_v<value_type>;
+        // value_type expected = sin(x[0], x[1], x[2]) / (pi * pi * 3);
         size_t N = 1e6;
         for (int i = 0; i < 6; i++) {
-            double delta = std::pow(10, -i - 1);
+            value_type delta = std::pow(10, -i - 1);
             std::cout << "delta: " << delta << std::flush;
             feynmanKac.updateParameter("delta0", delta);
 
             PoissonFeynmanKac<field_type, field_type>::MultilevelSum result =
                 feynmanKac.solvePointAtLevel(x, 0, N);
             // ASSERT_NEAR(result, expected, 1e-1 * expected);
-            double avg = result.sampleSum / result.Nsamples;
-            double var =
+            value_type avg = result.sampleSum / result.Nsamples;
+            value_type var =
                 (result.sampleSumSq - result.sampleSum * result.sampleSum / result.Nsamples)
                 / result.Nsamples;
             std::cout << " result: " << avg << " error: " << std::abs(avg - 1.)
@@ -134,20 +134,29 @@ namespace ippl {
     }
 
     TEST_F(PoissonFeynmanKacTest, homogeneousWoSPointTest) {
-        Vector<double, dim> x(.5);
-        // const double pi = Kokkos::numbers::pi_v<double>;
-        // double expected = sin(x[0], x[1], x[2]) / (pi * pi * 3);
-        size_t N = 1e8;
+        Vector<value_type, dim> x(.5);
+        // const value_type pi = Kokkos::numbers::pi_v<value_type>;
+        // value_type expected = sin(x[0], x[1], x[2]) / (pi * pi * 3);
+        size_t N      = 1e8;
+        size_t N_iter = 10;
 
-        for (int i = 0; i < 6; i++) {
-            double delta = std::pow(10, -i - 1);
+        double resSum   = 0;
+        double resSqSum = 0;
+        for (int i = 0; i < N_iter; i++) {
+            value_type delta = 1e-6;
             std::cout << "delta: " << delta << std::flush;
             feynmanKac.updateParameter("delta0", delta);
 
-            double result = feynmanKac.solvePointParallel(x, N);
+            value_type result = feynmanKac.solvePointParallel(x, N);
+            resSum += result;
+            resSqSum += result * result;
             // ASSERT_NEAR(result, expected, 1e-1 * expected);
             std::cout << " result: " << result << " error: " << std::abs(result - 1.) << std::endl;
         }
+        value_type avg = resSum / N_iter;
+        value_type var = (resSqSum - resSum * resSum / N_iter) / N_iter;
+        std::cout << " average: " << avg << " error: " << std::abs(avg - 1.) << " variance: " << var
+                  << " std: " << Kokkos::sqrt(var) << std::endl;
     }
 
     TEST_F(PoissonFeynmanKacTest, homogeneousWoSTest) {
@@ -157,20 +166,20 @@ namespace ippl {
         // const int nghost = fieldLhs->getNghost();
         // const auto& ldom = flayoutLhs.getLocalNDIndex();
 
-        Vector<double, dim> hx(0.25);
-        Vector<double, dim> origin(0.0);
-        const double pi = Kokkos::numbers::pi_v<double>;
-        double l2norm   = 0.0;
-        double infnorm  = 0.0;
+        Vector<value_type, dim> hx(0.25);
+        Vector<value_type, dim> origin(0.0);
+        const value_type pi = Kokkos::numbers::pi_v<value_type>;
+        value_type l2norm   = 0.0;
+        value_type infnorm  = 0.0;
 
         for (unsigned int i = 0; i < 4; i++) {
             for (unsigned int j = 0; j < 4; j++) {
                 for (unsigned int k = 0; k < 4; k++) {
-                    double x = (i + 0.5) * hx[0] + origin[0];
-                    double y = (j + 0.5) * hx[1] + origin[1];
-                    double z = (k + 0.5) * hx[2] + origin[2];
+                    value_type x = (i + 0.5) * hx[0] + origin[0];
+                    value_type y = (j + 0.5) * hx[1] + origin[1];
+                    value_type z = (k + 0.5) * hx[2] + origin[2];
 
-                    double expected = sin(x, y, z) / (pi * pi * 3.0);
+                    value_type expected = sin(x, y, z) / (pi * pi * 3.0);
                     l2norm += (expected - field_view(i, j, k)) * (expected - field_view(i, j, k));
                     infnorm = std::max(infnorm, std::abs(expected - field_view(i, j, k)));
 
@@ -184,8 +193,8 @@ namespace ippl {
     }
 
     TEST_F(PoissonFeynmanKacTest, samplePointAtLevelTest) {
-        size_t N              = 10000;
-        Vector<double, dim> x = {0.5, 0.5, 0.5};
+        size_t N                  = 10000;
+        Vector<value_type, dim> x = {0.5, 0.5, 0.5};
         PoissonFeynmanKac<field_type, field_type>::MultilevelSum sample =
             feynmanKac.solvePointAtLevel(x, 1, N);
         std::cout << "sampled with the following results at level 1" << std::endl
@@ -202,15 +211,15 @@ namespace ippl {
                   << "cost per sample: " << sample.CostSum / N << std::endl;
     }
     TEST_F(PoissonFeynmanKacTest, MLMCTest) {
-        Vector<double, dim> x = {0.5, 0.25, 0.25};
-        int Niter             = 5;
-        double delta          = 1e-2;
-        double epsilon        = 1e-4;
-        double expected       = 0.5;
+        Vector<value_type, dim> x = {0.5, 0.5, 0.5};
+        int Niter                 = 5;
+        value_type delta          = 1e-2;
+        value_type epsilon        = 1e-4;
+        value_type expected       = 1;
         // unsigned Nstart      = 10000;
         feynmanKac.updateParameter("delta0", delta);
         feynmanKac.updateParameter("tolerance", epsilon);
-        std::vector<double> Nsamples(Niter);
+        std::vector<value_type> Nsamples(Niter);
 
         std::cout << "sampling " << Niter << " samples" << std::endl;
         for (int i = 0; i < Niter; i++) {
@@ -218,10 +227,11 @@ namespace ippl {
             Nsamples[i] = feynmanKac.solvePointMultilevel(x);
         }
 
-        double sum    = std::reduce(Nsamples.begin(), Nsamples.end());
-        double mean   = sum / Niter;
-        double sq_sum = std::inner_product(Nsamples.begin(), Nsamples.end(), Nsamples.begin(), 0.0);
-        double stdev  = std::sqrt(sq_sum / Niter - mean * mean);
+        value_type sum  = std::reduce(Nsamples.begin(), Nsamples.end());
+        value_type mean = sum / Niter;
+        value_type sq_sum =
+            std::inner_product(Nsamples.begin(), Nsamples.end(), Nsamples.begin(), 0.0);
+        value_type stdev = std::sqrt(sq_sum / Niter - mean * mean);
         std::cout << "mean: " << mean << " error: " << std::abs(mean - expected) << std::endl;
         std::cout << " stdev: " << stdev << std::endl;
         std::cout << "variance: " << stdev * stdev << std::endl;
