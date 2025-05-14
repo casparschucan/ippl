@@ -180,6 +180,108 @@ KOKKOS_FUNCTION void dimTest(int Nr, int Nsamples, double delta0, Inform& msg) {
     }
 }
 
+template <size_t Dim>
+KOKKOS_FUNCTION void convergenceTest(int Nr, size_t Nsamples, double delta0, Inform& msg) {
+    using Mesh_t      = ippl::UniformCartesian<double, Dim>;
+    using Centering_t = Mesh_t::DefaultCentering;
+    typedef ippl::Field<double, Dim, Mesh_t, Centering_t> field;
+    using Solver_t = ippl::PoissonFeynmanKac<field>;
+
+    // get the gridsize from the user
+    ippl::Vector<int, Dim> nr(Nr);
+
+    // domain
+    ippl::NDIndex<Dim> owned;
+    for (unsigned i = 0; i < Dim; i++) {
+        owned[i] = ippl::Index(nr[i]);
+    }
+
+    // specifies decomposition; here all dimensions are parallel
+    std::array<bool, Dim> isParallel;
+    isParallel.fill(true);
+
+    // unit box
+    double dx = 1.0 / nr[0];
+    ippl::Vector<double, Dim> hr(dx);
+    ippl::Vector<double, Dim> origin(0.0);
+    Mesh_t mesh(owned, hr, origin);
+
+    // all parallel layout, standard domain, normal axis order
+    ippl::FieldLayout<Dim> layout(MPI_COMM_WORLD, owned, isParallel);
+
+    // define the R (rho) field
+    field exact, rho;
+    exact.initialize(mesh, layout);
+    rho.initialize(mesh, layout);
+
+    // define the LHS field
+    field phi;
+    phi.initialize(mesh, layout);
+
+    typedef ippl::BConds<field, Dim> bc_type;
+
+    bc_type bcField;
+
+    for (unsigned int i = 0; i < 2 * Dim; ++i) {
+        bcField[i] = std::make_shared<ippl::ZeroFace<field>>(i);
+    }
+
+    phi.setFieldBC(bcField);
+    // assign the rho field with a gaussian
+    auto view_rho    = rho.getView();
+    const int nghost = rho.getNghost();
+    const auto& ldom = layout.getLocalNDIndex();
+
+    using index_array_type = typename ippl::RangePolicy<Dim>::index_array_type;
+    ippl::parallel_for(
+        "Assign rho field", rho.getFieldRangePolicy(), KOKKOS_LAMBDA(const index_array_type& args) {
+            // go from local to global indices
+            ippl::Vector<double, Dim> xvec = (args + ldom.first() - nghost + 0.5) * dx;
+
+            ippl::apply(view_rho, args) = sinRhs<Dim>(xvec);
+        });
+
+    // assign the exact field with its values (erf function)
+    auto view_exact = exact.getView();
+
+    ippl::parallel_for(
+        "Assign exact field", exact.getFieldRangePolicy(),
+        KOKKOS_LAMBDA(const index_array_type& args) {
+            // go from local to global indices
+            ippl::Vector<double, Dim> xvec = (args + ldom.first() - nghost + 0.5) * dx;
+
+            ippl::apply(view_exact, args) = sin<Dim>(xvec);
+        });
+
+    // Parameter List to pass to solver
+    ippl::ParameterList params;
+    params.add("delta0", delta0);
+    // params.add("N_samples", Nsamples);
+
+    // define an FFTPoissonSolver object
+    Solver_t FKsolver(phi, rho, params);
+
+    std::string Dimstring    = std::to_string(Dim);
+    std::string WosTimer_str = "WosTimer";
+    WosTimer_str.append(Dimstring);
+
+    IpplTimings::TimerRef WoSTimer = IpplTimings::getTimer(WosTimer_str.c_str());
+
+    ippl::Vector<double, Dim> test_pos(.5);
+    // iterate over 5 timesteps
+    for (int times = 0; times < 1; ++times) {
+        IpplTimings::startTimer(WoSTimer);
+        // solve the Poisson equation -> rho contains the solution (phi) now
+        double res = FKsolver.solvePointParallel(test_pos, Nsamples);
+        IpplTimings::stopTimer(WoSTimer);
+        double err = Kokkos::abs(res - sin<Dim>(test_pos));
+
+        msg << std::setprecision(16) << res << " " << sin<Dim>(test_pos) << " " << err << endl;
+
+        // compute relative error norm for potential
+    }
+}
+
 int main(int argc, char* argv[]) {
     ippl::initialize(argc, argv);
     {
@@ -191,7 +293,8 @@ int main(int argc, char* argv[]) {
 
         int Nr = std::atoi(argv[1]);
         // get the number of samples from the user
-        int N = std::atoi(argv[2]);
+        unsigned long N = std::atoi(argv[2]);
+        N               = 250000000000;
 
         // get the delta
         double delta0 = std::strtod(argv[3], 0);
@@ -200,9 +303,10 @@ int main(int argc, char* argv[]) {
         msg << "Test FeynmanKac, grid = " << Nr << " N samples = " << N << " delta0 = " << delta0
             << endl;
         // dimTest<1>(Nr, N, delta0, msg);
-        dimTest<2>(Nr, N, delta0, msg);
-        dimTest<3>(Nr, N, delta0, msg);
-        dimTest<4>(Nr, N, delta0, msg);
+        // dimTest<2>(Nr, N, delta0, msg);
+        // dimTest<3>(Nr, N, delta0, msg);
+        // dimTest<4>(Nr, N, delta0, msg);
+        convergenceTest<3>(Nr, N, delta0, msg);
         //  stop the timers
         IpplTimings::stopTimer(allTimer);
         IpplTimings::print();

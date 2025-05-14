@@ -129,7 +129,9 @@ namespace ippl {
                 (result.sampleSumSq - result.sampleSum * result.sampleSum / result.Nsamples)
                 / result.Nsamples;
             std::cout << " result: " << avg << " error: " << std::abs(avg - 1.)
-                      << " variance: " << var << std::endl;
+                      << " variance: " << var
+                      << " work per sample: " << result.CostSum / (value_type)result.Nsamples
+                      << std::endl;
         }
     }
 
