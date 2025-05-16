@@ -140,25 +140,30 @@ namespace ippl {
         // const value_type pi = Kokkos::numbers::pi_v<value_type>;
         // value_type expected = sin(x[0], x[1], x[2]) / (pi * pi * 3);
         size_t N      = 1e8;
-        size_t N_iter = 10;
+        size_t N_iter = 5;
 
-        double resSum   = 0;
-        double resSqSum = 0;
-        for (int i = 0; i < N_iter; i++) {
-            value_type delta = 1e-6;
-            std::cout << "delta: " << delta << std::flush;
-            feynmanKac.updateParameter("delta0", delta);
+        for (unsigned j = 0; j < 5; j++) {
+            N = std::pow(10, j + 3);
 
-            value_type result = feynmanKac.solvePointParallel(x, N);
-            resSum += result;
-            resSqSum += result * result;
-            // ASSERT_NEAR(result, expected, 1e-1 * expected);
-            std::cout << " result: " << result << " error: " << std::abs(result - 1.) << std::endl;
+            double resSum   = 0;
+            double resSqSum = 0;
+            for (int i = 0; i < N_iter; i++) {
+                value_type delta = 1e-6;
+                std::cout << "delta: " << delta << std::flush;
+                feynmanKac.updateParameter("delta0", delta);
+
+                value_type result = feynmanKac.solvePointParallel(x, N);
+                resSum += result;
+                resSqSum += result * result;
+                // ASSERT_NEAR(result, expected, 1e-1 * expected);
+                std::cout << " result: " << result << " error: " << std::abs(result - 1)
+                          << std::endl;
+            }
+            value_type avg = resSum / N_iter;
+            value_type var = (resSqSum - resSum * resSum / N_iter) / N_iter;
+            std::cout << " average: " << avg << " error: " << std::abs(avg - 1.)
+                      << " variance: " << var << " std: " << Kokkos::sqrt(var) << std::endl;
         }
-        value_type avg = resSum / N_iter;
-        value_type var = (resSqSum - resSum * resSum / N_iter) / N_iter;
-        std::cout << " average: " << avg << " error: " << std::abs(avg - 1.) << " variance: " << var
-                  << " std: " << Kokkos::sqrt(var) << std::endl;
     }
 
     TEST_F(PoissonFeynmanKacTest, homogeneousWoSTest) {
@@ -212,11 +217,12 @@ namespace ippl {
                   << (sample.sampleSumSq - sample.sampleSum * sample.sampleSum / N) / N << std::endl
                   << "cost per sample: " << sample.CostSum / N << std::endl;
     }
+
     TEST_F(PoissonFeynmanKacTest, MLMCTest) {
         Vector<value_type, dim> x = {0.5, 0.5, 0.5};
-        int Niter                 = 5;
+        int Niter                 = 1;
         value_type delta          = 1e-2;
-        value_type epsilon        = 1e-4;
+        value_type epsilon        = 1e-5;
         value_type expected       = 1;
         // unsigned Nstart      = 10000;
         feynmanKac.updateParameter("delta0", delta);

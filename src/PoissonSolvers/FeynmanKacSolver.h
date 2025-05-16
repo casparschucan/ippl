@@ -177,13 +177,28 @@ namespace ippl {
         KOKKOS_INLINE_FUNCTION Tlhs solvePointParallel(Vector_t x, size_t N) {
             // check if the point is in the domain
             assert(isInDomain(x) && "point is outside the domain");
-            Tlhs result = 0;
+            Tlhs partialResult = 0;
+            Tlhs result        = 0;
+            // for numerical stability
+            size_t maxParallelN = 1e5;
+            size_t Niter        = Kokkos::max(N / (Tlhs)maxParallelN, (Tlhs)1.);
             // collect N WoS samples and average the results
-            Kokkos::parallel_reduce(
-                "homogeneousWoSTest", Kokkos::RangePolicy<>(0, N),
-                KOKKOS_LAMBDA(const int /*i*/, Tlhs& val) { val += WoS(x).sample; },
-                Kokkos::Sum<Tlhs>(result));
-            result /= N;
+            for (unsigned i = 0; i < Niter; i++) {
+                size_t Nsamples = maxParallelN;
+                if (i == Niter - 1) {
+                    Nsamples = Kokkos::min(maxParallelN + N % maxParallelN, N);
+                }
+                // std::cout << "Nsamples: " << Nsamples << std::endl;
+                Kokkos::parallel_reduce(
+                    "homogeneousWoSTest", Kokkos::RangePolicy<>(0, Nsamples),
+                    KOKKOS_LAMBDA(const int /*i*/, Tlhs& val) {
+                        val += WoS(x).sample;
+                    },
+                    Kokkos::Sum<Tlhs>(partialResult));
+
+                result += partialResult / N;
+                partialResult = 0;
+            }
             return result;
         }
 
@@ -286,9 +301,8 @@ namespace ippl {
                     sum(i) += sample.sampleSum;
                     sumSq(i) += sample.sampleSumSq;
                     costs(i) += sample.CostSum;
-                    // std::cout << "level: " << i << " samples: " << Ns(i)
-                    //<< " average: " << sum(i) / Ns(i)
-                    //<< " sq average: " << sumSq(i) / Ns(i) << std::endl;
+                    std::cout << " samples: " << Ns(i) << " average: " << sum(i) / Ns(i)
+                              << " sq average: " << sumSq(i) / Ns(i) << std::endl;
                 }
 
                 Tlhs varCostSumSq = 0;
@@ -305,6 +319,7 @@ namespace ippl {
 
                     varCostSumSq += Kokkos::sqrt(variance * costPerSample);
                 }
+                std::cout << "get to optimal sample loop";
 
                 // calculate the number of samples we need to take at each level
                 for (unsigned i = 0; i < curMaxLevel; ++i) {
@@ -320,15 +335,16 @@ namespace ippl {
                     } else {
                         Ndiff(i) = 0;
                     }
+                    std::cout << "level: " << i << " additional samples: " << Ndiff(i)
+                              << std::flush;
                     // add samples as needed
                     MultilevelSum sample = solvePointAtLevel(x, i, Ndiff(i));
                     // std::cout << sample.sampleSum << std::endl;
                     sum(i) += sample.sampleSum;
                     sumSq(i) += sample.sampleSumSq;
                     costs(i) += sample.CostSum;
-                    // std::cout << "level: " << i << " samples: " << Ns(i)
-                    //<< " average: " << sum(i) / Ns(i)
-                    //<< " sq average: " << sumSq(i) / Ns(i) << std::endl;
+                    std::cout << " samples: " << Ns(i) << " average: " << sum(i) / Ns(i)
+                              << " sq average: " << sumSq(i) / Ns(i) << std::endl;
                     Ndiff(i) = 0;
                 }
 
@@ -345,7 +361,7 @@ namespace ippl {
                 alpha = Kokkos::max(alpha, (Tlhs)0.5);
 
                 Tlhs estError = Kokkos::abs(av1) / (Kokkos::pow(2, alpha) - 1);
-                // std::cout << "estimated error: " << estError * 2 << std::endl;
+                std::cout << "estimated error: " << estError * 2 << std::endl;
                 if (estError * 2 < epsilon_m) {
                     // std::cout << "converged with error: " << estError << std::endl;
                     converged = true;
@@ -424,6 +440,7 @@ namespace ippl {
             Tlhs norm = Kokkos::sqrt(direction.dot(direction));
 
             direction *= d / norm;
+            randomPool_m.free_state(generator);
             return direction;
         }
 
@@ -439,7 +456,7 @@ namespace ippl {
 
             Tlhs y;
             // sample the radius
-            Tlhs radiusDensityMax = densityMax_m[0] / d;
+            Tlhs radiusDensityMax = densityMax_m[0] / d + (Tlhs)0.1;
             do {
                 sample[0] = generator.drand(0, d);
                 y         = generator.drand(0, radiusDensityMax);
@@ -453,7 +470,6 @@ namespace ippl {
                 } while (anglePdf(sample[i], i) < y);
                 // sample[i] = generator.drand(0, Kokkos::numbers::pi_v<Tlhs>);
             }
-
             // sample the last angle
             sample[Dim - 1] = generator.drand(0, 2 * Kokkos::numbers::pi_v<Tlhs>);
 
