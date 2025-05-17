@@ -106,9 +106,11 @@ namespace ippl {
 
         void initialize() {
             static_assert(std::is_floating_point<Tlhs>::value, "Not a floating point type");
-            this->densityMax_m[0] = (2 * Dim) / ((Dim - 1) * Kokkos::pow(Dim - 1, 1 / (Dim - 2)));
             if (Dim == 2) {
                 this->densityMax_m[0] = 4 / Kokkos::numbers::e;
+            } else {
+                this->densityMax_m[0] =
+                    (2 * Dim) / ((Dim - 1) * Kokkos::pow(Dim - 1, 1 / (Dim - 2)));
             }
             for (unsigned int d = 1; d < Dim - 1; ++d) {
                 // calculate the normalization constant which is also the maximum
@@ -191,9 +193,7 @@ namespace ippl {
                 // std::cout << "Nsamples: " << Nsamples << std::endl;
                 Kokkos::parallel_reduce(
                     "homogeneousWoSTest", Kokkos::RangePolicy<>(0, Nsamples),
-                    KOKKOS_LAMBDA(const int /*i*/, Tlhs& val) {
-                        val += WoS(x).sample;
-                    },
+                    KOKKOS_LAMBDA(const int /*i*/, Tlhs& val) { val += WoS(x).sample; },
                     Kokkos::Sum<Tlhs>(partialResult));
 
                 result += partialResult / N;

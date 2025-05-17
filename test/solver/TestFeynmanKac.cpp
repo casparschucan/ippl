@@ -45,6 +45,8 @@ public:
     field rho_m;
     field exact_m;
     field phi_m;
+    Mesh_t mesh_m;
+    ippl::FieldLayout<Dim> layout_m;
 
     PoissonTesterClass(int Nr) {
         // get the gridsize from the user
@@ -64,17 +66,16 @@ public:
         double dx = 1.0 / nr[0];
         ippl::Vector<double, Dim> hr(dx);
         ippl::Vector<double, Dim> origin(0.0);
-        Mesh_t mesh(owned, hr, origin);
+        mesh_m = Mesh_t(owned, hr, origin);
 
         // all parallel layout, standard domain, normal axis order
-        ippl::FieldLayout<Dim> layout(MPI_COMM_WORLD, owned, isParallel);
-
+        layout_m = ippl::FieldLayout<Dim>(MPI_COMM_WORLD, owned, isParallel);
         // define the R (rho) field
-        exact_m.initialize(mesh, layout);
-        rho_m.initialize(mesh, layout);
+        exact_m.initialize(mesh_m, layout_m);
+        rho_m.initialize(mesh_m, layout_m);
 
         // define the LHS field
-        phi_m.initialize(mesh, layout);
+        phi_m.initialize(mesh_m, layout_m);
 
         typedef ippl::BConds<field, Dim> bc_type;
 
@@ -88,21 +89,9 @@ public:
         // assign the rho field with a gaussian
         auto view_rho    = rho_m.getView();
         const int nghost = rho_m.getNghost();
-        const auto& ldom = layout.getLocalNDIndex();
+        const auto& ldom = layout_m.getLocalNDIndex();
 
         using index_array_type = typename ippl::RangePolicy<Dim>::index_array_type;
-        //// iterate through lhs field and solve at each position
-        // ippl::parallel_for(
-        //"Assigne lhs based on point evaluation", this->lhs_mp->getFieldRangePolicy(),
-        // KOKKOS_LAMBDA(const index_array_type& args) {
-        //// local to global index conversion
-        // Vector_t xvec =
-        //(args + lhsdom.first() - nghost + 0.5) * lhsGridSpacing + lhsorigin;
-
-        //// ippl::apply accesses the view at the given indices and obtains a
-        //// reference; see src/Expression/IpplOperations.h
-        // ippl::apply(lhsView, args) = solvePoint(xvec, Nsamples_m);
-        //});
         ippl::parallel_for(
             "Assign rho field", rho_m.getFieldRangePolicy(),
             KOKKOS_LAMBDA(const index_array_type& args) {
@@ -189,7 +178,7 @@ public:
             // compute relative error norm for potential
         }
     }
-    KOKKOS_FUNCTION void convergenceTest(int Nr, size_t Nsamples, double delta0, Inform& msg) {
+    KOKKOS_FUNCTION void convergenceTest(size_t Nsamples, double delta0, Inform& msg) {
         ippl::ParameterList params;
         params.add("delta0", delta0);
 
