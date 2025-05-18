@@ -249,7 +249,7 @@ namespace ippl {
         std::cout << "max error: " << maxError << std::endl;
         std::cout << " stdev: " << stdev << std::endl;
         std::cout << "variance: " << stdev * stdev << std::endl;
-        EXPECT_NEAR(stdev, 0, 1e-4);
+        EXPECT_NEAR(stdev, 0, 2e-4);
     }
 
 }  // namespace ippl

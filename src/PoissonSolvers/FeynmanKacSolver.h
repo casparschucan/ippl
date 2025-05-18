@@ -258,31 +258,45 @@ namespace ippl {
             // check if the point is in the domain
             assert(isInDomain(x) && "point is outside the domain");
             // collect N WoS samples and average the results
-            Tlhs sampleSum       = 0;
-            Tlhs sampleSumSq     = 0;
-            unsigned int costSum = 0;
-            Kokkos::parallel_reduce(
-                "homogeneousWoSTest", Kokkos::RangePolicy<>(0, N),
-                KOKKOS_LAMBDA(const int /*i*/, Tlhs& sum, Tlhs& sumSq, unsigned int& cost) {
-                    WosSample sample;
-                    if (level == 0) {
-                        sample = WoS(x);
-                    } else {
-                        // correlated sample
-                        sample = correlatedWoS(x, level);
-                    }
-                    sum += sample.sample;
-                    sumSq += sample.sample * sample.sample;
-                    cost += sample.work;
-                },
-                Kokkos::Sum<Tlhs>(sampleSum), Kokkos::Sum<Tlhs>(sampleSumSq),
-                Kokkos::Sum<unsigned int>(costSum));
-
             MultilevelSum result;
-            result.sampleSum   = sampleSum;
-            result.sampleSumSq = sampleSumSq;
-            result.CostSum     = costSum;
+            result.sampleSum   = 0;
+            result.sampleSumSq = 0;
+            result.CostSum     = 0;
             result.Nsamples    = N;
+
+            //// for numerical stability
+            size_t maxParallelN = 1e5;
+            size_t Niter        = Kokkos::max(N / (Tlhs)maxParallelN, (Tlhs)1.);
+            for (unsigned i = 0; i < Niter; i++) {
+                Tlhs sampleSum       = 0;
+                Tlhs sampleSumSq     = 0;
+                unsigned int costSum = 0;
+                size_t Nsamples      = maxParallelN;
+                if (i == Niter - 1) {
+                    Nsamples = Kokkos::min(maxParallelN + N % maxParallelN, N);
+                }
+                Kokkos::parallel_reduce(
+                    "homogeneousWoSTest", Kokkos::RangePolicy<>(0, Nsamples),
+                    KOKKOS_LAMBDA(const int /*i*/, Tlhs& sum, Tlhs& sumSq, unsigned int& cost) {
+                        WosSample sample;
+                        if (level == 0) {
+                            sample = WoS(x);
+                        } else {
+                            // correlated sample
+                            sample = correlatedWoS(x, level);
+                        }
+                        sum += sample.sample;
+                        sumSq += sample.sample * sample.sample;
+                        cost += sample.work;
+                    },
+                    Kokkos::Sum<Tlhs>(sampleSum), Kokkos::Sum<Tlhs>(sampleSumSq),
+                    Kokkos::Sum<unsigned int>(costSum));
+
+                result.sampleSum += sampleSum;
+                result.sampleSumSq += sampleSumSq;
+                result.CostSum += costSum;
+            }
+
             return result;
         }
 
