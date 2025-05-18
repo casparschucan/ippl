@@ -131,10 +131,10 @@ public:
         solver_m   = Solver_t(phi_m, rho_m, params);
         CGSolver_m = CGSolver_t(phi_m, rho_m);
 
-        std::string Dimstring   = std::to_string(Dim);
-        std::string timerName_m = "WosTimer";
+        std::string Dimstring = std::to_string(Dim);
+        timerName_m           = "WosTimer";
         timerName_m.append(Dimstring);
-        std::string CGtimerName_m = "CGTimer";
+        CGtimerName_m = "CGTimer";
         CGtimerName_m.append(Dimstring);
     }
 
@@ -243,7 +243,8 @@ int main(int argc, char* argv[]) {
         unsigned long N = std::atoi(argv[2]);
 
         // get the delta
-        double delta0 = std::strtod(argv[3], 0);
+        double delta0  = std::strtod(argv[3], 0);
+        double epsilon = std::strtod(argv[4], 0);
 
         // print out info and title for the relative error (L2 norm)
         msg << "Test FeynmanKac, grid = " << Nr << " N samples = " << N << " delta0 = " << delta0
@@ -252,9 +253,9 @@ int main(int argc, char* argv[]) {
         PoissonTesterClass<2> twoD(Nr, delta0, N);
         PoissonTesterClass<3> threeD(Nr, delta0, N);
         PoissonTesterClass<4> fourD(Nr, delta0, N);
-        twoD.MLMCspeedupTest(N, 1e-4, msg);
-        threeD.MLMCspeedupTest(N, 1e-4, msg);
-        fourD.MLMCspeedupTest(N, 1e-4, msg);
+        twoD.MLMCspeedupTest(N, epsilon, msg);
+        threeD.MLMCspeedupTest(N, epsilon, msg);
+        fourD.MLMCspeedupTest(N, epsilon, msg);
         //  stop the timers
         IpplTimings::stopTimer(allTimer);
         IpplTimings::print();
