@@ -220,27 +220,33 @@ namespace ippl {
 
     TEST_F(PoissonFeynmanKacTest, MLMCTest) {
         Vector<value_type, dim> x = {0.5, 0.5, 0.5};
-        int Niter                 = 1;
+        int Niter                 = 5;
         value_type delta          = 1e-2;
-        value_type epsilon        = 1e-5;
+        value_type epsilon        = 1e-4;
         value_type expected       = 1;
         // unsigned Nstart      = 10000;
         feynmanKac.updateParameter("delta0", delta);
         feynmanKac.updateParameter("tolerance", epsilon);
-        std::vector<value_type> Nsamples(Niter);
+        std::vector<value_type> MLMCruns(Niter);
+
+        value_type maxError = 0;
+        value_type errorSum = 0;
 
         std::cout << "sampling " << Niter << " samples" << std::endl;
-        for (int i = 0; i < Niter; i++) {
+        for (unsigned i = 0; i < Niter; i++) {
             std::cout << "iteration: " << i << " of " << Niter << "\r" << std::flush;
-            Nsamples[i] = feynmanKac.solvePointMultilevel(x);
+            MLMCruns[i] = feynmanKac.solvePointMultilevel(x);
+            maxError    = Kokkos::max(maxError, Kokkos::abs(MLMCruns[i] - expected) / expected);
+            errorSum += Kokkos::abs(MLMCruns[i] - expected);
         }
 
-        value_type sum  = std::reduce(Nsamples.begin(), Nsamples.end());
+        value_type sum  = std::reduce(MLMCruns.begin(), MLMCruns.end());
         value_type mean = sum / Niter;
         value_type sq_sum =
-            std::inner_product(Nsamples.begin(), Nsamples.end(), Nsamples.begin(), 0.0);
+            std::inner_product(MLMCruns.begin(), MLMCruns.end(), MLMCruns.begin(), 0.0);
         value_type stdev = std::sqrt(sq_sum / Niter - mean * mean);
-        std::cout << "mean: " << mean << " error: " << std::abs(mean - expected) << std::endl;
+        std::cout << "mean: " << mean << " mean error: " << errorSum / Niter << std::endl;
+        std::cout << "max error: " << maxError << std::endl;
         std::cout << " stdev: " << stdev << std::endl;
         std::cout << "variance: " << stdev * stdev << std::endl;
         EXPECT_NEAR(stdev, 0, 1e-4);

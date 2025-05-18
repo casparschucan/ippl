@@ -25,6 +25,7 @@
 #include "Kokkos_Random.hpp"
 #include "ParameterList.h"
 #include "Poisson.h"
+#include "impl/Kokkos_Combined_Reducer.hpp"
 
 namespace ippl {
 
@@ -257,19 +258,31 @@ namespace ippl {
             // check if the point is in the domain
             assert(isInDomain(x) && "point is outside the domain");
             // collect N WoS samples and average the results
-            MultilevelSum result;
-            result.sampleSum   = 0;
-            result.sampleSumSq = 0;
-            result.CostSum     = 0;
-            result.Nsamples    = 0;
-            for (size_t i = 0; i < N; ++i) {
-                if (level == 0) {
-                    result += WoS(x);
-                    continue;
-                }
+            Tlhs sampleSum       = 0;
+            Tlhs sampleSumSq     = 0;
+            unsigned int costSum = 0;
+            Kokkos::parallel_reduce(
+                "homogeneousWoSTest", Kokkos::RangePolicy<>(0, N),
+                KOKKOS_LAMBDA(const int /*i*/, Tlhs& sum, Tlhs& sumSq, unsigned int& cost) {
+                    WosSample sample;
+                    if (level == 0) {
+                        sample = WoS(x);
+                    } else {
+                        // correlated sample
+                        sample = correlatedWoS(x, level);
+                    }
+                    sum += sample.sample;
+                    sumSq += sample.sample * sample.sample;
+                    cost += sample.work;
+                },
+                Kokkos::Sum<Tlhs>(sampleSum), Kokkos::Sum<Tlhs>(sampleSumSq),
+                Kokkos::Sum<unsigned int>(costSum));
 
-                result += correlatedWoS(x, level);
-            }
+            MultilevelSum result;
+            result.sampleSum   = sampleSum;
+            result.sampleSumSq = sampleSumSq;
+            result.CostSum     = costSum;
+            result.Nsamples    = N;
             return result;
         }
 
@@ -301,8 +314,8 @@ namespace ippl {
                     sum(i) += sample.sampleSum;
                     sumSq(i) += sample.sampleSumSq;
                     costs(i) += sample.CostSum;
-                    std::cout << " samples: " << Ns(i) << " average: " << sum(i) / Ns(i)
-                              << " sq average: " << sumSq(i) / Ns(i) << std::endl;
+                    // std::cout << " samples: " << Ns(i) << " average: " << sum(i) / Ns(i)
+                    //<< " sq average: " << sumSq(i) / Ns(i) << std::endl;
                 }
 
                 Tlhs varCostSumSq = 0;
@@ -310,16 +323,11 @@ namespace ippl {
                 for (unsigned i = 0; i < curMaxLevel; ++i) {
                     Tlhs variance = (sumSq(i) - sum(i) * sum(i) / Ns(i)) / Ns(i);
                     assert(variance > 0 && "variance is negative");
-                    if (variance < 0) {
-                        // std::cout << "variance too smol: " << variance << "at level: " << i
-                        //<< std::endl;
-                        variance = 0;
-                    }
+                    variance           = Kokkos::max(variance, (Tlhs)1e-10);
                     Tlhs costPerSample = costs(i) / Ns(i);
 
                     varCostSumSq += Kokkos::sqrt(variance * costPerSample);
                 }
-                std::cout << "get to optimal sample loop";
 
                 // calculate the number of samples we need to take at each level
                 for (unsigned i = 0; i < curMaxLevel; ++i) {
@@ -335,16 +343,16 @@ namespace ippl {
                     } else {
                         Ndiff(i) = 0;
                     }
-                    std::cout << "level: " << i << " additional samples: " << Ndiff(i)
-                              << std::flush;
+                    // std::cout << "level: " << i << " additional samples: " << Ndiff(i)
+                    //<< std::flush;
                     // add samples as needed
                     MultilevelSum sample = solvePointAtLevel(x, i, Ndiff(i));
                     // std::cout << sample.sampleSum << std::endl;
                     sum(i) += sample.sampleSum;
                     sumSq(i) += sample.sampleSumSq;
                     costs(i) += sample.CostSum;
-                    std::cout << " samples: " << Ns(i) << " average: " << sum(i) / Ns(i)
-                              << " sq average: " << sumSq(i) / Ns(i) << std::endl;
+                    // std::cout << " samples: " << Ns(i) << " average: " << sum(i) / Ns(i)
+                    //<< " sq average: " << sumSq(i) / Ns(i) << std::endl;
                     Ndiff(i) = 0;
                 }
 
@@ -361,7 +369,7 @@ namespace ippl {
                 alpha = Kokkos::max(alpha, (Tlhs)0.5);
 
                 Tlhs estError = Kokkos::abs(av1) / (Kokkos::pow(2, alpha) - 1);
-                std::cout << "estimated error: " << estError * 2 << std::endl;
+                // std::cout << "estimated error: " << estError * 2 << std::endl;
                 if (estError * 2 < epsilon_m) {
                     // std::cout << "converged with error: " << estError << std::endl;
                     converged = true;
