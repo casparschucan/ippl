@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <utility>
 
 #include "BcTypes.h"
 
@@ -41,14 +42,21 @@ public:
     typedef ippl::Field<double, Dim, Mesh_t, Centering_t> field;
     using Solver_t   = ippl::PoissonFeynmanKac<field>;
     using CGSolver_t = ippl::PoissonCG<field>;
+    using MLMSample  = typename Solver_t::MultilevelSum;
 
     field rho_m;
     field exact_m;
     field phi_m;
     Mesh_t mesh_m;
     ippl::FieldLayout<Dim> layout_m;
+    Solver_t solver_m;
+    CGSolver_t CGSolver_m;
+    std::string timerName_m;
+    std::string CGtimerName_m;
+    double delta0_m;
 
-    PoissonTesterClass(int Nr) {
+    PoissonTesterClass(int Nr, double delta0, int Nsamples)
+        : delta0_m(delta0) {
         // get the gridsize from the user
         ippl::Vector<int, Dim> nr(Nr);
 
@@ -112,6 +120,22 @@ public:
 
                 ippl::apply(view_exact, args) = this->sin(xvec);
             });
+        // Parameter List to pass to solver
+        ippl::ParameterList params;
+        params.add("delta0", delta0);
+        params.add("N_samples", Nsamples);
+
+        ippl::ParameterList CGparams;
+
+        // define an FFTPoissonSolver object
+        solver_m   = Solver_t(phi_m, rho_m, params);
+        CGSolver_m = CGSolver_t(phi_m, rho_m);
+
+        std::string Dimstring   = std::to_string(Dim);
+        std::string timerName_m = "WosTimer";
+        timerName_m.append(Dimstring);
+        std::string CGtimerName_m = "CGTimer";
+        CGtimerName_m.append(Dimstring);
     }
 
     void run(int Nr, int Nsamples, double delta0, Inform& msg) {
@@ -136,33 +160,16 @@ public:
         }
         return res;
     }
-    void dimTest(int Nsamples, double delta0, Inform& msg) {
-        // Parameter List to pass to solver
-        ippl::ParameterList params;
-        params.add("delta0", delta0);
-        params.add("N_samples", Nsamples);
-
-        ippl::ParameterList CGparams;
-
-        // define an FFTPoissonSolver object
-        Solver_t FKsolver(phi_m, rho_m, params);
-        CGSolver_t CGSolver(phi_m, rho_m);
-
-        std::string Dimstring    = std::to_string(Dim);
-        std::string WosTimer_str = "WosTimer";
-        WosTimer_str.append(Dimstring);
-        std::string CGTimer_str = "CGTimer";
-        CGTimer_str.append(Dimstring);
-
-        IpplTimings::TimerRef WoSTimer = IpplTimings::getTimer(WosTimer_str.c_str());
-        IpplTimings::TimerRef CGTimer  = IpplTimings::getTimer(CGTimer_str.c_str());
+    void dimTest(int Nsamples, Inform& msg) {
+        IpplTimings::TimerRef WoSTimer = IpplTimings::getTimer(timerName_m.c_str());
+        IpplTimings::TimerRef CGTimer  = IpplTimings::getTimer(CGtimerName_m.c_str());
 
         ippl::Vector<double, Dim> test_pos(.5);
         // iterate over 5 timesteps
         for (int times = 0; times < 5; ++times) {
             IpplTimings::startTimer(WoSTimer);
             // solve the Poisson equation -> rho contains the solution (phi) now
-            FKsolver.solvePointParallel(test_pos, Nsamples);
+            solver_m.solvePointParallel(test_pos, Nsamples);
             IpplTimings::stopTimer(WoSTimer);
             phi_m      = phi_m - exact_m;
             double err = norm(phi_m) / norm(exact_m);
@@ -172,37 +179,52 @@ public:
 
             IpplTimings::startTimer(CGTimer);
 
-            CGSolver.solve();
+            CGSolver_m.solve();
             IpplTimings::stopTimer(CGTimer);
 
             // compute relative error norm for potential
         }
     }
-    KOKKOS_FUNCTION void convergenceTest(size_t Nsamples, double delta0, Inform& msg) {
-        ippl::ParameterList params;
-        params.add("delta0", delta0);
-
-        // define an FFTPoissonSolver object
-        Solver_t FKsolver(phi_m, rho_m, params, 20);
-
-        std::string Dimstring    = std::to_string(Dim);
-        std::string WosTimer_str = "WosTimer";
-        WosTimer_str.append(Dimstring);
-
-        IpplTimings::TimerRef WoSTimer = IpplTimings::getTimer(WosTimer_str.c_str());
+    void convergenceTest(size_t Nsamples, double delta0, Inform& msg) {
+        IpplTimings::TimerRef WoSTimer = IpplTimings::getTimer(timerName_m.c_str());
 
         ippl::Vector<double, Dim> test_pos(.5);
         // iterate over 5 timesteps
         for (int times = 0; times < 1; ++times) {
             IpplTimings::startTimer(WoSTimer);
             // solve the Poisson equation -> rho contains the solution (phi) now
-            double res = FKsolver.solvePoint(test_pos, Nsamples);
+            double res = solver_m.solvePoint(test_pos, Nsamples);
             IpplTimings::stopTimer(WoSTimer);
-            double err = Kokkos::abs(res - sin<Dim>(test_pos));
+            double err = Kokkos::abs(res - sin(test_pos));
 
-            msg << std::setprecision(16) << res << " " << sin<Dim>(test_pos) << " " << err << endl;
+            msg << std::setprecision(16) << res << " " << sin(test_pos) << " " << err << endl;
+        }
+    }
 
-            // compute relative error norm for potential
+    void MLMCspeedupTest(size_t Nsamples, double epsilon, Inform& msg) {
+        IpplTimings::TimerRef WoSTimer = IpplTimings::getTimer(timerName_m.c_str());
+
+        ippl::Vector<double, Dim> test_pos(.5);
+        solver_m.updateParameter("tolerance", epsilon);
+        // iterate over 5 timesteps
+        for (int times = 0; times < 5; ++times) {
+            IpplTimings::startTimer(WoSTimer);
+            // solve the Poisson equation -> rho contains the solution (phi) now
+            solver_m.updateParameter("delta0", delta0_m);
+            std::pair<double, unsigned> res = solver_m.solvePointMultilevelWithWork(test_pos);
+            IpplTimings::stopTimer(WoSTimer);
+            double err = Kokkos::abs(res.first - sin(test_pos));
+            // compute the speedup to normal WoS Poisson
+            double deltaTest = epsilon / 2.;
+            solver_m.updateParameter("delta0", deltaTest);
+            MLMSample result = solver_m.solvePointAtLevel(test_pos, 0, Nsamples);
+            double varL =
+                (result.sampleSumSq - result.sampleSum * result.sampleSum / Nsamples) / Nsamples;
+            size_t costL   = result.CostSum * varL / (epsilon * epsilon * Nsamples);
+            double speedup = (double)costL / (double)res.second;
+            msg << std::setprecision(16) << res.first << " " << sin(test_pos) << " " << err
+                << " speedup: " << speedup << " NlCl: " << result.CostSum << " varL: " << varL
+                << " costL " << costL << " costMLMC: " << res.second << endl;
         }
     }
 };
@@ -227,12 +249,12 @@ int main(int argc, char* argv[]) {
         msg << "Test FeynmanKac, grid = " << Nr << " N samples = " << N << " delta0 = " << delta0
             << endl;
 
-        PoissonTesterClass<2> twoD(Nr);
-        PoissonTesterClass<3> threeD(Nr);
-        PoissonTesterClass<4> fourD(Nr);
-        twoD.dimTest(N, delta0, msg);
-        threeD.dimTest(N, delta0, msg);
-        fourD.dimTest(N, delta0, msg);
+        PoissonTesterClass<2> twoD(Nr, delta0, N);
+        PoissonTesterClass<3> threeD(Nr, delta0, N);
+        PoissonTesterClass<4> fourD(Nr, delta0, N);
+        twoD.MLMCspeedupTest(N, 1e-4, msg);
+        threeD.MLMCspeedupTest(N, 1e-4, msg);
+        fourD.MLMCspeedupTest(N, 1e-4, msg);
         //  stop the timers
         IpplTimings::stopTimer(allTimer);
         IpplTimings::print();

@@ -230,6 +230,7 @@ namespace ippl {
                 assert(isInDomain(x_next) && "sampled point is outside the domain");
 
                 if (distance < deltaFine) {
+                    sample.work += Dim;
                     // if we are close to the boundary, we stop the walk
                     x = x_next;
                     break;
@@ -255,7 +256,9 @@ namespace ippl {
         }
 
         KOKKOS_FUNCTION MultilevelSum solvePointAtLevel(Vector_t x, size_t level, size_t N) {
-            // check if the point is in the domain
+            delta0_m = this->params_m.template get<Tlhs>("delta0");
+            // std::cout << "delta0: " << delta0_m << " for " << N << " samples" << std::endl;
+            //  check if the point is in the domain
             assert(isInDomain(x) && "point is outside the domain");
             // collect N WoS samples and average the results
             MultilevelSum result;
@@ -300,7 +303,7 @@ namespace ippl {
             return result;
         }
 
-        KOKKOS_FUNCTION Tlhs solvePointMultilevel(Vector_t x) {
+        KOKKOS_FUNCTION std::pair<Tlhs, WorkType> solvePointMultilevelWithWork(Vector_t x) {
             size_t maxLevel = this->params_m.template get<int>("max_levels");
             epsilon_m       = this->params_m.template get<Tlhs>("tolerance");
             Kokkos::View<size_t*> Ns("number of samples taken per level", maxLevel);
@@ -399,8 +402,17 @@ namespace ippl {
                 result += sum(i) / Ns(i);
             }
 
+            WorkType totalCost = 0;
+            for (unsigned i = 0; i < curMaxLevel; ++i) {
+                totalCost += costs(i);
+            }
+
             // std::cout << "maximal level used: " << curMaxLevel << std::endl;
-            return result;
+            return {result, totalCost};
+        }
+
+        KOKKOS_FUNCTION Tlhs solvePointMultilevel(Vector_t x) {
+            return solvePointMultilevelWithWork(x).first;
         }
 
         /**
@@ -425,6 +437,7 @@ namespace ippl {
                 assert(isInDomain(x_next) && "sampled point is outside the domain");
 
                 if (distance < delta0_m) {
+                    sample.work += Dim;
                     // if we are close to the boundary, we stop the walk
                     x = x_next;
                     break;
