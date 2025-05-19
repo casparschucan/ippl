@@ -55,8 +55,12 @@ public:
     std::string CGtimerName_m;
     double delta0_m;
 
-    KOKKOS_FUNCTION PoissonTesterClass(int Nr, double delta0, int Nsamples)
+    PoissonTesterClass(int Nr, double delta0, int Nsamples)
         : delta0_m(delta0) {
+        initialize(Nr, Nsamples);
+    }
+
+    void initialize(int Nr, int Nsamples) {
         // get the gridsize from the user
         ippl::Vector<int, Dim> nr(Nr);
 
@@ -122,7 +126,7 @@ public:
             });
         // Parameter List to pass to solver
         ippl::ParameterList params;
-        params.add("delta0", delta0);
+        params.add("delta0", delta0_m);
         params.add("N_samples", Nsamples);
 
         ippl::ParameterList CGparams;
