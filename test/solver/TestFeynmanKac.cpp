@@ -138,11 +138,6 @@ public:
         CGtimerName_m.append(Dimstring);
     }
 
-    void run(int Nr, int Nsamples, double delta0, Inform& msg) {
-        dimTest<Dim>(Nr, Nsamples, delta0, msg);
-        convergenceTest<Dim>(Nr, Nsamples, delta0, msg);
-    }
-
     KOKKOS_INLINE_FUNCTION double sinRhs(ippl::Vector<double, Dim> x) {
         double pi  = Kokkos::numbers::pi_v<double>;
         double res = pi * pi * Dim;
@@ -253,6 +248,7 @@ int main(int argc, char* argv[]) {
         PoissonTesterClass<2> twoD(Nr, delta0, N);
         PoissonTesterClass<3> threeD(Nr, delta0, N);
         PoissonTesterClass<4> fourD(Nr, delta0, N);
+        twoD.dimTest(N, msg);
         twoD.MLMCspeedupTest(N, epsilon, msg);
         threeD.MLMCspeedupTest(N, epsilon, msg);
         fourD.MLMCspeedupTest(N, epsilon, msg);
