@@ -85,21 +85,24 @@ namespace ippl {
         };
 
         PoissonFeynmanKac()
-            : Base() {
+            : Base()
+            , pi_m(Kokkos::numbers::pi_v<Tlhs>) {
             static_assert(std::is_floating_point<Tlhs>::value, "Not a floating point type");
             setDefaultParameters();
         }
 
         PoissonFeynmanKac(lhs_type& lhs, rhs_type& rhs, unsigned seed = 42)
             : Base(lhs, rhs)
-            , randomPool_m(seed) {
+            , randomPool_m(seed)
+            , pi_m(Kokkos::numbers::pi_v<Tlhs>) {
             setDefaultParameters();
             initialize();
         }
 
         PoissonFeynmanKac(lhs_type& lhs, rhs_type& rhs, ParameterList& params, unsigned seed = 42)
             : Base(lhs, rhs)
-            , randomPool_m(seed) {
+            , randomPool_m(seed)
+            , pi_m(Kokkos::numbers::pi_v<Tlhs>) {
             setDefaultParameters();
             this->params_m.merge(params);
             initialize();
@@ -673,8 +676,7 @@ namespace ippl {
         Tlhs epsilon_m;
         // the integral of green's function over the unit sphere
         constexpr static Tlhs sphereVolume_s = 1.0 / (2.0 * Dim);
-        constexpr static Tlhs pi_m           = Kokkos::numbers::pi_v<Tlhs>;
-
+        Tlhs pi_m;
         // Number of samples per point
         size_t Nsamples_m;
 
