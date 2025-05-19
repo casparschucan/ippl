@@ -122,7 +122,7 @@ namespace ippl {
                                  / Kokkos::tgamma((Dim - d + 1.) / 2.);
                 this->densityMax_m[d] = 1. / Z_i;
             }
-            densityMax_m[Dim - 1] = 1 / (2 * Kokkos::numbers::pi_v<Tlhs>);
+            densityMax_m[Dim - 1] = 1 / (2 * pi_m);
             gridSpacing_m         = this->rhs_mp->get_mesh().getMeshSpacing();
             gridSizes_m           = this->rhs_mp->get_mesh().getGridsize();
             origin_m              = this->rhs_mp->get_mesh().getOrigin();
@@ -133,7 +133,7 @@ namespace ippl {
         }
 
         KOKKOS_INLINE_FUNCTION Tlhs sinRhs(Vector_t x) {
-            Tlhs pi  = Kokkos::numbers::pi_v<Tlhs>;
+            Tlhs pi  = pi_m;
             Tlhs res = pi * pi * Dim;
             for (unsigned int i = 0; i < Dim; i++) {
                 res *= Kokkos::sin(pi * x[i]);
@@ -500,13 +500,13 @@ namespace ippl {
             for (unsigned int i = 1; i < Dim - 1; ++i) {
                 // sample the angle using rejection sampling
                 do {
-                    sample[i] = generator.drand(0, Kokkos::numbers::pi_v<Tlhs>);
+                    sample[i] = generator.drand(0, pi_m);
                     y         = generator.drand(0, densityMax_m[i]);
                 } while (anglePdf(sample[i], i) < y);
-                // sample[i] = generator.drand(0, Kokkos::numbers::pi_v<Tlhs>);
+                // sample[i] = generator.drand(0, pi_m);
             }
             // sample the last angle
-            sample[Dim - 1] = generator.drand(0, 2 * Kokkos::numbers::pi_v<Tlhs>);
+            sample[Dim - 1] = generator.drand(0, 2 * pi_m);
 
             randomPool_m.free_state(generator);
             return sphericalToCartesian(sample);
@@ -673,6 +673,7 @@ namespace ippl {
         Tlhs epsilon_m;
         // the integral of green's function over the unit sphere
         constexpr static Tlhs sphereVolume_s = 1.0 / (2.0 * Dim);
+        constexpr static Tlhs pi_m           = Kokkos::numbers::pi_v<Tlhs>;
 
         // Number of samples per point
         size_t Nsamples_m;
