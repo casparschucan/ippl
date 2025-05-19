@@ -55,7 +55,7 @@ public:
     std::string CGtimerName_m;
     double delta0_m;
 
-    PoissonTesterClass(int Nr, double delta0, int Nsamples)
+    KOKKOS_FUNCTION PoissonTesterClass(int Nr, double delta0, int Nsamples)
         : delta0_m(delta0) {
         // get the gridsize from the user
         ippl::Vector<int, Dim> nr(Nr);
@@ -160,7 +160,7 @@ public:
         }
         return res;
     }
-    void dimTest(int Nsamples, Inform& msg) {
+    KOKKOS_FUNCTION void dimTest(int Nsamples, Inform& msg) {
         IpplTimings::TimerRef WoSTimer = IpplTimings::getTimer(timerName_m.c_str());
         IpplTimings::TimerRef CGTimer  = IpplTimings::getTimer(CGtimerName_m.c_str());
 
