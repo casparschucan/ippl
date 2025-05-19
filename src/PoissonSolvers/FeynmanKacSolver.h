@@ -83,6 +83,313 @@ namespace ippl {
                 return *this;
             }
         };
+        class WoSGenerator {
+        public:
+            WoSGenerator()
+                : randomPool_m(42)
+                , pi_m(Kokkos::numbers::pi_v<Tlhs>) {
+                static_assert(std::is_floating_point<Tlhs>::value, "Not a floating point type");
+            }
+            WoSGenerator(Tlhs delta0, Vector_t densityMax, Vector_t gridSpacing, Vector_t gridSizes,
+                         Vector_t origin, Vector_t gridMaxBounds, lhs_type& lhs, rhs_type& rhs)
+                : randomPool_m(42)
+                , delta0_m(delta0)
+                , densityMax_m(densityMax)
+                , gridSpacing_m(gridSpacing)
+                , gridSizes_m(gridSizes)
+                , origin_m(origin)
+                , gridMaxBounds_m(gridMaxBounds)
+                , pi_m(Kokkos::numbers::pi_v<Tlhs>) {
+                this->lhs_mp = &lhs;
+                this->rhs_mp = &rhs;
+                static_assert(std::is_floating_point<Tlhs>::value, "Not a floating point type");
+            }
+
+            KOKKOS_INLINE_FUNCTION WosSample correlatedWoS(Vector_t x0, size_t level) {
+                assert(level > 0 && "level 0 shouldn't be correlated");
+                WosSample sample;
+                sample.work   = 0;
+                sample.sample = 0;
+
+                Vector_t x = x0;
+
+                bool coarseIn = true;
+
+                Tlhs delta_ratio = 16;
+
+                Tlhs deltaCoarse = delta0_m / Kokkos::pow(delta_ratio, level - 1);
+                Tlhs deltaFine   = deltaCoarse / delta_ratio;
+
+                while (true) {
+                    Tlhs distance = getDistanceToBoundary(x);
+                    // sample the offset by sampling the sphere with radius distance
+                    Vector_t offset = sampleSurface(distance);
+                    Vector_t x_next = x + offset;
+                    // check if we are in the domain
+                    assert(isInDomain(x_next) && "sampled point is outside the domain");
+
+                    if (distance < deltaFine) {
+                        sample.work += Dim;
+                        // if we are close to the boundary, we stop the walk
+                        x = x_next;
+                        break;
+                    }
+                    if (distance < deltaCoarse && coarseIn) {
+                        coarseIn = false;
+                    }
+
+                    // sample the Green's function density
+                    Vector_t y_j = x + sampleGreenDensity(distance);
+
+                    if (!coarseIn) {
+                        sample.sample += sphereVolume_s * distance * distance * sinRhs(y_j);
+                    }
+
+                    // calculate the work done
+                    sample.work += 2 * Dim;
+
+                    x = x_next;
+                }
+                return sample;
+            }
+
+            /**
+             * @brief Executes the walk on spheres algorithm from a starting position x0
+             * @param x0 starting position
+             * @return the integral value and the number of steps taken
+             */
+            KOKKOS_INLINE_FUNCTION WosSample WoS(Vector_t x0) {
+                WosSample sample;
+                sample.work   = 0;
+                sample.sample = 0;
+
+                Vector_t x = x0;
+
+                while (true) {
+                    Tlhs distance = getDistanceToBoundary(x);
+                    // sample the offset by sampling the sphere with radius distance
+                    Vector_t offset = sampleSurface(distance);
+                    Vector_t x_next = x + offset;
+                    // check if we are in the domain
+                    assert(isInDomain(x_next) && "sampled point is outside the domain");
+
+                    if (distance < delta0_m) {
+                        sample.work += Dim;
+                        // if we are close to the boundary, we stop the walk
+                        x = x_next;
+                        break;
+                    }
+
+                    // sample the Green's function density
+                    Vector_t y_j = x + sampleGreenDensity(distance);
+                    sample.sample += sphereVolume_s * distance * distance * sinRhs(y_j);
+
+                    // calculate the work done
+                    sample.work += 2 * Dim;
+
+                    x = x_next;
+                }
+                return sample;
+            }
+
+            /**
+             * @brief Function to sample the surface of the n-Ball with radius d uniformly
+             * @param d radius of the n-Ball we're sampling
+             * @return a vector of size Dim with the sampled coordinates
+             */
+            KOKKOS_INLINE_FUNCTION Vector_t sampleSurface(Tlhs d) {
+                auto generator = randomPool_m.get_state();
+
+                Vector_t direction;
+
+                // Generate n independent standard normal variables
+                for (unsigned i = 0; i < Dim; i++) {
+                    // generate normal distribution
+                    direction[i] = generator.normal();
+                }
+
+                // Normalize to unit length
+                Tlhs norm = Kokkos::sqrt(direction.dot(direction));
+
+                direction *= d / norm;
+                randomPool_m.free_state(generator);
+                return direction;
+            }
+
+            /**
+             * @brief sample the Green's function density for the Poisson equation on a n-Ball in
+             * spherical coodrinates
+             * @param d radius of the n-Ball we're sampling
+             */
+            KOKKOS_INLINE_FUNCTION Vector_t sampleGreenDensity(Tlhs d) {
+                auto generator = randomPool_m.get_state();
+
+                Vector_t sample;
+
+                Tlhs y;
+                // sample the radius
+                Tlhs radiusDensityMax = densityMax_m[0] / d + (Tlhs)0.1;
+                do {
+                    sample[0] = generator.drand(0, d);
+                    y         = generator.drand(0, radiusDensityMax);
+                } while (radiusPdf(sample[0], d) < y);
+
+                for (unsigned int i = 1; i < Dim - 1; ++i) {
+                    // sample the angle using rejection sampling
+                    do {
+                        sample[i] = generator.drand(0, pi_m);
+                        y         = generator.drand(0, densityMax_m[i]);
+                    } while (anglePdf(sample[i], i) < y);
+                    // sample[i] = generator.drand(0, pi_m);
+                }
+                // sample the last angle
+                sample[Dim - 1] = generator.drand(0, 2 * pi_m);
+
+                randomPool_m.free_state(generator);
+                return sphericalToCartesian(sample);
+            }
+
+            /**
+             * @brief Function that interpolates the rhs field at the given point
+             * @param x point to interpolate
+             * @return interpolated value
+             */
+            KOKKOS_INLINE_FUNCTION Tlhs interpolate(Vector_t x) {
+                Tlhs value = 0.0;
+
+                Vector<size_t, Dim> offset(0.5);
+                // get index of the nearest gridpoint to the left bottom of x
+                Vector<size_t, Dim> index = Floor((x - origin_m) / gridSpacing_m - offset);
+                // check if the index is out of bounds
+                for (unsigned int d = 0; d < Dim; ++d) {
+                    // check if the index is out of bounds
+                    if (index[d] >= gridSizes_m[d]) {
+                        // std::cout << "index: " << index[d] << " grid_sizes: " << gridSizes_m[d]
+                        //<< std::endl;
+                        index[d]--;
+                    }
+                    assert(index[d] < gridSizes_m[d] && index[d] >= 0 && "index out of bounds");
+                }
+                value = ippl::apply(this->rhs_mp->getView(), index);
+
+                return value;
+            }
+
+        protected:
+            /**
+             * @brief Function to sample the Green's function density for the
+             * i-th angle for the Poisson equation on a n-Ball
+             * @param phi angle
+             * @param i index of the angle
+             * @return density value
+             */
+            KOKKOS_INLINE_FUNCTION Tlhs anglePdf(Tlhs phi, unsigned int i) {
+                assert(i < Dim - 1 && "invalid function index");
+                assert(Dim > 2 && "function only needed for dimension at least 3");
+                // calculate the normalization constant
+                // beta function of 1/2 and (n-i)/2 which we express through the
+                // gamma function
+                Tlhs Z_i = Kokkos::tgamma(0.5) * Kokkos::tgamma((Dim - i) / 2.)
+                           / Kokkos::tgamma((Dim - i + 1.) / 2.);
+
+                return Kokkos::pow(Kokkos::sin(phi), Dim - i - 1.) / Z_i;
+            }
+
+            /**
+             * @brief Function to sample the Green's function density for the
+             * radius for the Poisson equation on a n-Ball
+             * @param r radius
+             * @param d radius of the n-Ball we're sampling
+             * @return density value
+             */
+            KOKKOS_INLINE_FUNCTION Tlhs radiusPdf(Tlhs r, Tlhs d) {
+                if (Dim == 2) {
+                    return 4. * r / (d * d) * Kokkos::log(d / r);
+                }
+                assert(r > 0 && r < d && "invalid function index");
+                // calculate the normalization constant
+                // d^n * (n-2) / 2 * n
+                const Tlhs Z_r = Kokkos::pow(d, Dim) * (Dim - 2.) / (2. * Dim);
+
+                // intermediate variables
+                const Tlhs r_n2 = Kokkos::pow(r, Dim - 2);
+                const Tlhs d_n2 = Kokkos::pow(d, Dim - 2);
+                return (d_n2 - r_n2) * r / Z_r;
+            }
+
+            /**
+             * @brief Function to calculate the distance to the boundary of the domain
+             * This assumes that the domain is a hypercube
+             * @param x point to check
+             * @return distance to the boundary
+             */
+            KOKKOS_INLINE_FUNCTION Tlhs getDistanceToBoundary(Vector_t x) {
+                Tlhs distance = gridMaxBounds_m[0];
+                for (unsigned int d = 0; d < Dim; ++d) {
+                    Tlhs dist = Kokkos::min(x[d] - origin_m[d], gridMaxBounds_m[d] - x[d]);
+                    distance  = Kokkos::min(distance, dist);
+                }
+                return distance;
+            }
+
+            /**
+             * @brief Function to check if a point is in the domain
+             * @param x point to check
+             * @return true if the point is in the domain, false otherwise
+             */
+            KOKKOS_INLINE_FUNCTION bool isInDomain(Vector_t x) {
+                for (unsigned int d = 0; d < Dim; ++d) {
+                    if (x[d] < origin_m[d] || x[d] > gridMaxBounds_m[d]) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            /**
+             * @brief Function to convert a point in spherical coordinates to Cartesian coordinates
+             * @param spherical point in spherical coordinates
+             * @return point in Cartesian coordinates
+             */
+            KOKKOS_INLINE_FUNCTION Vector_t sphericalToCartesian(Vector_t spherical) {
+                Vector_t cartesian;
+                for (unsigned int d = 0; d < Dim - 1; ++d) {
+                    cartesian[d] = spherical[0] * Kokkos::cos(spherical[d + 1]);
+                    for (unsigned int i = 1; i <= d; ++i) {
+                        cartesian[d] *= Kokkos::sin(spherical[i]);
+                    }
+                }
+                cartesian[Dim - 1] = spherical[0];
+                for (unsigned int i = 1; i < Dim; ++i) {
+                    cartesian[Dim - 1] *= Kokkos::sin(spherical[i]);
+                }
+                return cartesian;
+            }
+            KOKKOS_INLINE_FUNCTION Tlhs sinRhs(Vector_t x) {
+                Tlhs pi  = pi_m;
+                Tlhs res = pi * pi * Dim;
+                for (unsigned int i = 0; i < Dim; i++) {
+                    res *= Kokkos::sin(pi * x[i]);
+                }
+                return res;
+            }
+
+            rhs_type* rhs_mp = nullptr;
+            lhs_type* lhs_mp = nullptr;
+            GeneratorPool randomPool_m;
+            Tlhs delta0_m;
+            // The maxima of the different edge densities for the coordinates
+            Vector_t densityMax_m;
+
+            // the necessary mesh information to compute the walk on sphere samples
+            Vector_t gridSpacing_m;
+            Vector_t gridSizes_m;
+            Vector_t origin_m;
+            Vector_t gridMaxBounds_m;
+            // the integral of green's function over the unit sphere
+            constexpr static Tlhs sphereVolume_s = 1.0 / (2.0 * FieldLHS::dim);
+            Tlhs pi_m;
+        };
 
         PoissonFeynmanKac()
             : Base()
@@ -133,15 +440,8 @@ namespace ippl {
             delta0_m              = this->params_m.template get<Tlhs>("delta0");
             epsilon_m             = this->params_m.template get<Tlhs>("tolerance");
             Nsamples_m            = this->params_m.template get<int>("N_samples");
-        }
-
-        KOKKOS_INLINE_FUNCTION Tlhs sinRhs(Vector_t x) {
-            Tlhs pi  = pi_m;
-            Tlhs res = pi * pi * Dim;
-            for (unsigned int i = 0; i < Dim; i++) {
-                res *= Kokkos::sin(pi * x[i]);
-            }
-            return res;
+            wosGen_m = WoSGenerator(delta0_m, densityMax_m, gridSpacing_m, gridSizes_m, origin_m,
+                                    gridMaxBounds_m, *this->lhs_mp, *this->rhs_mp);
         }
 
         void solve() override {
@@ -204,58 +504,6 @@ namespace ippl {
                 partialResult = 0;
             }
             return result;
-        }
-
-        KOKKOS_INLINE_FUNCTION WosSample correlatedWoS(Vector_t x0, size_t level) {
-            assert(level > 0 && "level 0 shouldn't be correlated");
-            delta0_m = this->params_m.template get<Tlhs>("delta0");
-            WosSample sample;
-            sample.work   = 0;
-            sample.sample = 0;
-
-            Ncorr++;
-
-            Vector_t x = x0;
-
-            bool coarseIn = true;
-
-            Tlhs delta_ratio = 16;
-
-            Tlhs deltaCoarse = delta0_m / Kokkos::pow(delta_ratio, level - 1);
-            Tlhs deltaFine   = deltaCoarse / delta_ratio;
-
-            while (true) {
-                Tlhs distance = getDistanceToBoundary(x);
-                // sample the offset by sampling the sphere with radius distance
-                Vector_t offset = sampleSurface(distance);
-                Vector_t x_next = x + offset;
-                // check if we are in the domain
-                assert(isInDomain(x_next) && "sampled point is outside the domain");
-
-                if (distance < deltaFine) {
-                    sample.work += Dim;
-                    // if we are close to the boundary, we stop the walk
-                    x = x_next;
-                    break;
-                }
-                if (distance < deltaCoarse && coarseIn) {
-                    coarseIn = false;
-                    Nuncorr++;
-                }
-
-                // sample the Green's function density
-                Vector_t y_j = x + sampleGreenDensity(distance);
-
-                if (!coarseIn) {
-                    sample.sample += sphereVolume_s * distance * distance * sinRhs(y_j);
-                }
-
-                // calculate the work done
-                sample.work += 2 * Dim;
-
-                x = x_next;
-            }
-            return sample;
         }
 
         KOKKOS_FUNCTION MultilevelSum solvePointAtLevel(Vector_t x, size_t level, size_t N) {
@@ -418,225 +666,12 @@ namespace ippl {
             return solvePointMultilevelWithWork(x).first;
         }
 
-        /**
-         * @brief Executes the walk on spheres algorithm from a starting position x0
-         * @param x0 starting position
-         * @return the integral value and the number of steps taken
-         */
-        KOKKOS_INLINE_FUNCTION WosSample WoS(Vector_t x0) {
-            delta0_m = this->params_m.template get<Tlhs>("delta0");
-            WosSample sample;
-            sample.work   = 0;
-            sample.sample = 0;
-
-            Vector_t x = x0;
-
-            while (true) {
-                Tlhs distance = getDistanceToBoundary(x);
-                // sample the offset by sampling the sphere with radius distance
-                Vector_t offset = sampleSurface(distance);
-                Vector_t x_next = x + offset;
-                // check if we are in the domain
-                assert(isInDomain(x_next) && "sampled point is outside the domain");
-
-                if (distance < delta0_m) {
-                    sample.work += Dim;
-                    // if we are close to the boundary, we stop the walk
-                    x = x_next;
-                    break;
-                }
-
-                // sample the Green's function density
-                Vector_t y_j = x + sampleGreenDensity(distance);
-                sample.sample += sphereVolume_s * distance * distance * sinRhs(y_j);
-
-                // calculate the work done
-                sample.work += 2 * Dim;
-
-                x = x_next;
-            }
-            return sample;
-        }
-
-        /**
-         * @brief Function to sample the surface of the n-Ball with radius d uniformly
-         * @param d radius of the n-Ball we're sampling
-         * @return a vector of size Dim with the sampled coordinates
-         */
-        KOKKOS_INLINE_FUNCTION Vector_t sampleSurface(Tlhs d) {
-            auto generator = randomPool_m.get_state();
-
-            Vector_t direction;
-
-            // Generate n independent standard normal variables
-            for (unsigned i = 0; i < Dim; i++) {
-                // generate normal distribution
-                direction[i] = generator.normal();
-            }
-
-            // Normalize to unit length
-            Tlhs norm = Kokkos::sqrt(direction.dot(direction));
-
-            direction *= d / norm;
-            randomPool_m.free_state(generator);
-            return direction;
-        }
-
-        /**
-         * @brief sample the Green's function density for the Poisson equation on a n-Ball in
-         * spherical coodrinates
-         * @param d radius of the n-Ball we're sampling
-         */
-        KOKKOS_INLINE_FUNCTION Vector_t sampleGreenDensity(Tlhs d) {
-            auto generator = randomPool_m.get_state();
-
-            Vector_t sample;
-
-            Tlhs y;
-            // sample the radius
-            Tlhs radiusDensityMax = densityMax_m[0] / d + (Tlhs)0.1;
-            do {
-                sample[0] = generator.drand(0, d);
-                y         = generator.drand(0, radiusDensityMax);
-            } while (radiusPdf(sample[0], d) < y);
-
-            for (unsigned int i = 1; i < Dim - 1; ++i) {
-                // sample the angle using rejection sampling
-                do {
-                    sample[i] = generator.drand(0, pi_m);
-                    y         = generator.drand(0, densityMax_m[i]);
-                } while (anglePdf(sample[i], i) < y);
-                // sample[i] = generator.drand(0, pi_m);
-            }
-            // sample the last angle
-            sample[Dim - 1] = generator.drand(0, 2 * pi_m);
-
-            randomPool_m.free_state(generator);
-            return sphericalToCartesian(sample);
-        }
-
-        /**
-         * @brief Function that interpolates the rhs field at the given point
-         * @param x point to interpolate
-         * @return interpolated value
-         */
-        KOKKOS_INLINE_FUNCTION Tlhs interpolate(Vector_t x) {
-            Tlhs value = 0.0;
-
-            Vector<size_t, Dim> offset(0.5);
-            // get index of the nearest gridpoint to the left bottom of x
-            Vector<size_t, Dim> index = Floor((x - origin_m) / gridSpacing_m - offset);
-            // check if the index is out of bounds
-            for (unsigned int d = 0; d < Dim; ++d) {
-                // check if the index is out of bounds
-                if (index[d] >= gridSizes_m[d]) {
-                    // std::cout << "index: " << index[d] << " grid_sizes: " << gridSizes_m[d]
-                    //<< std::endl;
-                    index[d]--;
-                }
-                assert(index[d] < gridSizes_m[d] && index[d] >= 0 && "index out of bounds");
-            }
-            value = ippl::apply(this->rhs_mp->getView(), index);
-
-            return value;
-        }
-
     protected:
         void setDefaultParameters() override {
             this->params_m.add("max_levels", 10);
             this->params_m.add("N_samples", 1000000000);
             this->params_m.add("tolerance", (Tlhs)1e-3);
             this->params_m.add("delta0", (Tlhs)0.000001);
-        }
-
-        /**
-         * @brief Function to sample the Green's function density for the
-         * i-th angle for the Poisson equation on a n-Ball
-         * @param phi angle
-         * @param i index of the angle
-         * @return density value
-         */
-        KOKKOS_INLINE_FUNCTION Tlhs anglePdf(Tlhs phi, unsigned int i) {
-            assert(i < Dim - 1 && "invalid function index");
-            assert(Dim > 2 && "function only needed for dimension at least 3");
-            // calculate the normalization constant
-            // beta function of 1/2 and (n-i)/2 which we express through the
-            // gamma function
-            Tlhs Z_i = Kokkos::tgamma(0.5) * Kokkos::tgamma((Dim - i) / 2.)
-                       / Kokkos::tgamma((Dim - i + 1.) / 2.);
-
-            return Kokkos::pow(Kokkos::sin(phi), Dim - i - 1.) / Z_i;
-        }
-
-        /**
-         * @brief Function to sample the Green's function density for the
-         * radius for the Poisson equation on a n-Ball
-         * @param r radius
-         * @param d radius of the n-Ball we're sampling
-         * @return density value
-         */
-        KOKKOS_INLINE_FUNCTION Tlhs radiusPdf(Tlhs r, Tlhs d) {
-            if (Dim == 2) {
-                return 4. * r / (d * d) * Kokkos::log(d / r);
-            }
-            assert(r > 0 && r < d && "invalid function index");
-            // calculate the normalization constant
-            // d^n * (n-2) / 2 * n
-            const Tlhs Z_r = Kokkos::pow(d, Dim) * (Dim - 2.) / (2. * Dim);
-
-            // intermediate variables
-            const Tlhs r_n2 = Kokkos::pow(r, Dim - 2);
-            const Tlhs d_n2 = Kokkos::pow(d, Dim - 2);
-            return (d_n2 - r_n2) * r / Z_r;
-        }
-
-        /**
-         * @brief Function to calculate the distance to the boundary of the domain
-         * This assumes that the domain is a hypercube
-         * @param x point to check
-         * @return distance to the boundary
-         */
-        KOKKOS_INLINE_FUNCTION Tlhs getDistanceToBoundary(Vector_t x) {
-            Tlhs distance = gridMaxBounds_m[0];
-            for (unsigned int d = 0; d < Dim; ++d) {
-                Tlhs dist = Kokkos::min(x[d] - origin_m[d], gridMaxBounds_m[d] - x[d]);
-                distance  = Kokkos::min(distance, dist);
-            }
-            return distance;
-        }
-
-        /**
-         * @brief Function to check if a point is in the domain
-         * @param x point to check
-         * @return true if the point is in the domain, false otherwise
-         */
-        KOKKOS_INLINE_FUNCTION bool isInDomain(Vector_t x) {
-            for (unsigned int d = 0; d < Dim; ++d) {
-                if (x[d] < origin_m[d] || x[d] > gridMaxBounds_m[d]) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        /**
-         * @brief Function to convert a point in spherical coordinates to Cartesian coordinates
-         * @param spherical point in spherical coordinates
-         * @return point in Cartesian coordinates
-         */
-        KOKKOS_INLINE_FUNCTION Vector_t sphericalToCartesian(Vector_t spherical) {
-            Vector_t cartesian;
-            for (unsigned int d = 0; d < Dim - 1; ++d) {
-                cartesian[d] = spherical[0] * Kokkos::cos(spherical[d + 1]);
-                for (unsigned int i = 1; i <= d; ++i) {
-                    cartesian[d] *= Kokkos::sin(spherical[i]);
-                }
-            }
-            cartesian[Dim - 1] = spherical[0];
-            for (unsigned int i = 1; i < Dim; ++i) {
-                cartesian[Dim - 1] *= Kokkos::sin(spherical[i]);
-            }
-            return cartesian;
         }
 
         /**
@@ -682,6 +717,7 @@ namespace ippl {
 
         size_t Ncorr   = 0;
         size_t Nuncorr = 0;
+        WoSGenerator wosGen_m;
     };
 }  // namespace ippl
 
