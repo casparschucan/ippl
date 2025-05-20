@@ -365,8 +365,8 @@ namespace ippl {
                     } else {
                         Ndiff(i) = 0;
                     }
-                    std::cout << "level: " << i << " additional samples: " << Ndiff(i)
-                              << std::flush;
+                    // std::cout << "level: " << i << " additional samples: " << Ndiff(i)
+                    //<< std::flush;
                     // add samples as needed
                     MultilevelSum sample = solvePointAtLevel(x, i, Ndiff(i));
                     // std::cout << sample.sampleSum << std::endl;
