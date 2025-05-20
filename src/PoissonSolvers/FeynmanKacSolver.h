@@ -136,7 +136,7 @@ namespace ippl {
             Nsamples_m            = this->params_m.template get<int>("N_samples");
         }
 
-        KOKKOS_INLINE_FUNCTION Tlhs sinRhs(Vector_t x) {
+        KOKKOS_INLINE_FUNCTION Tlhs sinRhs(Vector_t x) const {
             Tlhs pi  = pi_m;
             Tlhs res = pi * pi * Dim;
             for (unsigned int i = 0; i < Dim; i++) {
@@ -157,7 +157,7 @@ namespace ippl {
             // iterate through lhs field and solve at each position
             ippl::parallel_for(
                 "Assigne lhs based on point evaluation", this->lhs_mp->getFieldRangePolicy(),
-                KOKKOS_LAMBDA(const index_array_type& args) {
+                KOKKOS_CLASS_LAMBDA(const index_array_type& args) {
                     // local to global index conversion
                     Vector_t xvec =
                         (args + lhsdom.first() - nghost + 0.5) * lhsGridSpacing + lhsorigin;
@@ -169,7 +169,7 @@ namespace ippl {
             return;
         }
 
-        KOKKOS_INLINE_FUNCTION Tlhs solvePoint(Vector_t x, size_t N) {
+        KOKKOS_INLINE_FUNCTION Tlhs solvePoint(Vector_t x, size_t N) const {
             // check if the point is in the domain
             assert(isInDomain(x) && "point is outside the domain");
             // collect N WoS samples and average the results
@@ -184,6 +184,7 @@ namespace ippl {
         KOKKOS_INLINE_FUNCTION Tlhs solvePointParallel(Vector_t x, size_t N) {
             // check if the point is in the domain
             assert(isInDomain(x) && "point is outside the domain");
+            delta0_m           = this->params_m.template get<Tlhs>("delta0");
             Tlhs partialResult = 0;
             Tlhs result        = 0;
             // for numerical stability
@@ -198,7 +199,7 @@ namespace ippl {
                 // std::cout << "Nsamples: " << Nsamples << std::endl;
                 Kokkos::parallel_reduce(
                     "homogeneousWoSTest", Kokkos::RangePolicy<>(0, Nsamples),
-                    KOKKOS_LAMBDA(const int /*i*/, Tlhs& val) { val += WoS(x).sample; },
+                    KOKKOS_CLASS_LAMBDA(const int /*i*/, Tlhs& val) { val += WoS(x).sample; },
                     Kokkos::Sum<Tlhs>(partialResult));
 
                 result += partialResult / N;
@@ -207,20 +208,18 @@ namespace ippl {
             return result;
         }
 
-        KOKKOS_INLINE_FUNCTION WosSample correlatedWoS(Vector_t x0, size_t level) {
-            assert(level > 0 && "level 0 shouldn't be correlated");
-            delta0_m = this->params_m.template get<Tlhs>("delta0");
+        KOKKOS_INLINE_FUNCTION WosSample correlatedWoS(Vector_t x0, size_t level) const {
+            // assert(level > 0 && "level 0 shouldn't be correlated");
+            // delta0_m = this->params_m.template get<Tlhs>("delta0");
             WosSample sample;
             sample.work   = 0;
             sample.sample = 0;
-
-            Ncorr++;
 
             Vector_t x = x0;
 
             bool coarseIn = true;
 
-            Tlhs delta_ratio = 16;
+            Tlhs delta_ratio = 32;
 
             Tlhs deltaCoarse = delta0_m / Kokkos::pow(delta_ratio, level - 1);
             Tlhs deltaFine   = deltaCoarse / delta_ratio;
@@ -241,7 +240,6 @@ namespace ippl {
                 }
                 if (distance < deltaCoarse && coarseIn) {
                     coarseIn = false;
-                    Nuncorr++;
                 }
 
                 // sample the Green's function density
@@ -259,10 +257,10 @@ namespace ippl {
             return sample;
         }
 
-        KOKKOS_FUNCTION MultilevelSum solvePointAtLevel(Vector_t x, size_t level, size_t N) {
-            delta0_m = this->params_m.template get<Tlhs>("delta0");
-            // std::cout << "delta0: " << delta0_m << " for " << N << " samples" << std::endl;
-            //  check if the point is in the domain
+        KOKKOS_FUNCTION MultilevelSum solvePointAtLevel(Vector_t x, size_t level, size_t N) const {
+            // delta0_m = this->params_m.template get<Tlhs>("delta0");
+            //  std::cout << "delta0: " << delta0_m << " for " << N << " samples" << std::endl;
+            //   check if the point is in the domain
             assert(isInDomain(x) && "point is outside the domain");
             // collect N WoS samples and average the results
             MultilevelSum result;
@@ -284,7 +282,8 @@ namespace ippl {
                 }
                 Kokkos::parallel_reduce(
                     "homogeneousWoSTest", Kokkos::RangePolicy<>(0, Nsamples),
-                    KOKKOS_LAMBDA(const int /*i*/, Tlhs& sum, Tlhs& sumSq, unsigned int& cost) {
+                    KOKKOS_CLASS_LAMBDA(const int /*i*/, Tlhs& sum, Tlhs& sumSq,
+                                        unsigned int& cost) {
                         WosSample sample;
                         if (level == 0) {
                             sample = WoS(x);
@@ -309,6 +308,7 @@ namespace ippl {
 
         KOKKOS_FUNCTION std::tuple<Tlhs, WorkType, WorkType> solvePointMultilevelWithWork(
             Vector_t x) {
+            delta0_m        = this->params_m.template get<Tlhs>("delta0");
             size_t maxLevel = this->params_m.template get<int>("max_levels");
             epsilon_m       = this->params_m.template get<Tlhs>("tolerance");
             Kokkos::View<size_t*> Ns("number of samples taken per level", maxLevel);
@@ -426,8 +426,8 @@ namespace ippl {
          * @param x0 starting position
          * @return the integral value and the number of steps taken
          */
-        KOKKOS_INLINE_FUNCTION WosSample WoS(Vector_t x0) {
-            delta0_m = this->params_m.template get<Tlhs>("delta0");
+        KOKKOS_INLINE_FUNCTION WosSample WoS(Vector_t x0) const {
+            // delta0_m = this->params_m.template get<Tlhs>("delta0");
             WosSample sample;
             sample.work   = 0;
             sample.sample = 0;
@@ -466,7 +466,7 @@ namespace ippl {
          * @param d radius of the n-Ball we're sampling
          * @return a vector of size Dim with the sampled coordinates
          */
-        KOKKOS_INLINE_FUNCTION Vector_t sampleSurface(Tlhs d) {
+        KOKKOS_INLINE_FUNCTION Vector_t sampleSurface(Tlhs d) const {
             auto generator = randomPool_m.get_state();
 
             Vector_t direction;
@@ -490,7 +490,7 @@ namespace ippl {
          * spherical coodrinates
          * @param d radius of the n-Ball we're sampling
          */
-        KOKKOS_INLINE_FUNCTION Vector_t sampleGreenDensity(Tlhs d) {
+        KOKKOS_INLINE_FUNCTION Vector_t sampleGreenDensity(Tlhs d) const {
             auto generator = randomPool_m.get_state();
 
             Vector_t sample;
@@ -523,7 +523,7 @@ namespace ippl {
          * @param x point to interpolate
          * @return interpolated value
          */
-        KOKKOS_INLINE_FUNCTION Tlhs interpolate(Vector_t x) {
+        KOKKOS_INLINE_FUNCTION Tlhs interpolate(Vector_t x) const {
             Tlhs value = 0.0;
 
             Vector<size_t, Dim> offset(0.5);
@@ -559,7 +559,7 @@ namespace ippl {
          * @param i index of the angle
          * @return density value
          */
-        KOKKOS_INLINE_FUNCTION Tlhs anglePdf(Tlhs phi, unsigned int i) {
+        KOKKOS_INLINE_FUNCTION Tlhs anglePdf(Tlhs phi, unsigned int i) const {
             assert(i < Dim - 1 && "invalid function index");
             assert(Dim > 2 && "function only needed for dimension at least 3");
             // calculate the normalization constant
@@ -578,7 +578,7 @@ namespace ippl {
          * @param d radius of the n-Ball we're sampling
          * @return density value
          */
-        KOKKOS_INLINE_FUNCTION Tlhs radiusPdf(Tlhs r, Tlhs d) {
+        KOKKOS_INLINE_FUNCTION Tlhs radiusPdf(Tlhs r, Tlhs d) const {
             if (Dim == 2) {
                 return 4. * r / (d * d) * Kokkos::log(d / r);
             }
@@ -599,7 +599,7 @@ namespace ippl {
          * @param x point to check
          * @return distance to the boundary
          */
-        KOKKOS_INLINE_FUNCTION Tlhs getDistanceToBoundary(Vector_t x) {
+        KOKKOS_INLINE_FUNCTION Tlhs getDistanceToBoundary(Vector_t x) const {
             Tlhs distance = gridMaxBounds_m[0];
             for (unsigned int d = 0; d < Dim; ++d) {
                 Tlhs dist = Kokkos::min(x[d] - origin_m[d], gridMaxBounds_m[d] - x[d]);
@@ -613,7 +613,7 @@ namespace ippl {
          * @param x point to check
          * @return true if the point is in the domain, false otherwise
          */
-        KOKKOS_INLINE_FUNCTION bool isInDomain(Vector_t x) {
+        KOKKOS_INLINE_FUNCTION bool isInDomain(Vector_t x) const {
             for (unsigned int d = 0; d < Dim; ++d) {
                 if (x[d] < origin_m[d] || x[d] > gridMaxBounds_m[d]) {
                     return false;
@@ -627,7 +627,7 @@ namespace ippl {
          * @param spherical point in spherical coordinates
          * @return point in Cartesian coordinates
          */
-        KOKKOS_INLINE_FUNCTION Vector_t sphericalToCartesian(Vector_t spherical) {
+        KOKKOS_INLINE_FUNCTION Vector_t sphericalToCartesian(Vector_t spherical) const {
             Vector_t cartesian;
             for (unsigned int d = 0; d < Dim - 1; ++d) {
                 cartesian[d] = spherical[0] * Kokkos::cos(spherical[d + 1]);
@@ -682,9 +682,6 @@ namespace ippl {
         Tlhs pi_m;
         // Number of samples per point
         size_t Nsamples_m;
-
-        size_t Ncorr   = 0;
-        size_t Nuncorr = 0;
     };
 }  // namespace ippl
 

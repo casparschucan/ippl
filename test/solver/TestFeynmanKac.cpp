@@ -55,6 +55,18 @@ public:
     std::string CGtimerName_m;
     double delta0_m;
 
+    // copy constructor
+    PoissonTesterClass(const PoissonTesterClass& other)
+        : rho_m(other.rho_m)
+        , exact_m(other.exact_m)
+        , phi_m(other.phi_m)
+        , mesh_m(other.mesh_m)
+        , layout_m(other.layout_m)
+        , solver_m(other.solver_m)
+        , timerName_m(other.timerName_m)
+        , CGtimerName_m(other.CGtimerName_m)
+        , delta0_m(other.delta0_m) {}
+
     PoissonTesterClass(int Nr, double delta0, int Nsamples)
         : delta0_m(delta0) {
         initialize(Nr, Nsamples);
@@ -106,7 +118,7 @@ public:
         using index_array_type = typename ippl::RangePolicy<Dim>::index_array_type;
         ippl::parallel_for(
             "Assign rho field", rho_m.getFieldRangePolicy(),
-            KOKKOS_LAMBDA(const index_array_type& args) {
+            KOKKOS_CLASS_LAMBDA(const index_array_type& args) {
                 // go from local to global indices
                 ippl::Vector<double, Dim> xvec = (args + ldom.first() - nghost + 0.5) * dx;
 
@@ -118,7 +130,7 @@ public:
 
         ippl::parallel_for(
             "Assign exact field", exact_m.getFieldRangePolicy(),
-            KOKKOS_LAMBDA(const index_array_type& args) {
+            KOKKOS_CLASS_LAMBDA(const index_array_type& args) {
                 // go from local to global indices
                 ippl::Vector<double, Dim> xvec = (args + ldom.first() - nghost + 0.5) * dx;
 
@@ -142,7 +154,7 @@ public:
         CGtimerName_m.append(Dimstring);
     }
 
-    KOKKOS_INLINE_FUNCTION double sinRhs(ippl::Vector<double, Dim> x) {
+    KOKKOS_INLINE_FUNCTION double sinRhs(ippl::Vector<double, Dim> x) const {
         double pi  = Kokkos::numbers::pi_v<double>;
         double res = pi * pi * Dim;
         for (unsigned int i = 0; i < Dim; i++) {
@@ -151,7 +163,7 @@ public:
         return res;
     }
 
-    KOKKOS_INLINE_FUNCTION double sin(ippl::Vector<double, Dim> x) {
+    KOKKOS_INLINE_FUNCTION double sin(ippl::Vector<double, Dim> x) const {
         double pi  = Kokkos::numbers::pi_v<double>;
         double res = 1;
         for (unsigned int i = 0; i < Dim; i++) {
@@ -206,7 +218,7 @@ public:
         ippl::Vector<double, Dim> test_pos(.5);
         solver_m.updateParameter("tolerance", epsilon);
         // iterate over 5 timesteps
-        for (int times = 0; times < 1; ++times) {
+        for (int times = 0; times < 5; ++times) {
             IpplTimings::startTimer(WoSTimer);
             // solve the Poisson equation -> rho contains the solution (phi) now
             solver_m.updateParameter("delta0", delta0_m);
@@ -255,8 +267,8 @@ int main(int argc, char* argv[]) {
         PoissonTesterClass<4> fourD(Nr, delta0, N);
         // twoD.dimTest(N, msg);
         twoD.MLMCspeedupTest(N, epsilon, msg);
-        // threeD.MLMCspeedupTest(N, epsilon, msg);
-        // fourD.MLMCspeedupTest(N, epsilon, msg);
+        threeD.MLMCspeedupTest(N, epsilon, msg);
+        fourD.MLMCspeedupTest(N, epsilon, msg);
         //   stop the timers
         IpplTimings::stopTimer(allTimer);
         IpplTimings::print();
