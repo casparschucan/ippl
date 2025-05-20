@@ -11,6 +11,7 @@
 
 #include <cassert>
 #include <ostream>
+#include <tuple>
 #include <vector>
 
 #include "Types/Vector.h"
@@ -306,7 +307,8 @@ namespace ippl {
             return result;
         }
 
-        KOKKOS_FUNCTION std::pair<Tlhs, WorkType> solvePointMultilevelWithWork(Vector_t x) {
+        KOKKOS_FUNCTION std::tuple<Tlhs, WorkType, WorkType> solvePointMultilevelWithWork(
+            Vector_t x) {
             size_t maxLevel = this->params_m.template get<int>("max_levels");
             epsilon_m       = this->params_m.template get<Tlhs>("tolerance");
             Kokkos::View<size_t*> Ns("number of samples taken per level", maxLevel);
@@ -363,8 +365,8 @@ namespace ippl {
                     } else {
                         Ndiff(i) = 0;
                     }
-                    // std::cout << "level: " << i << " additional samples: " << Ndiff(i)
-                    //<< std::flush;
+                    std::cout << "level: " << i << " additional samples: " << Ndiff(i)
+                              << std::flush;
                     // add samples as needed
                     MultilevelSum sample = solvePointAtLevel(x, i, Ndiff(i));
                     // std::cout << sample.sampleSum << std::endl;
@@ -411,11 +413,12 @@ namespace ippl {
             }
 
             // std::cout << "maximal level used: " << curMaxLevel << std::endl;
-            return {result, totalCost};
+            return {result, totalCost, curMaxLevel};
         }
 
         KOKKOS_FUNCTION Tlhs solvePointMultilevel(Vector_t x) {
-            return solvePointMultilevelWithWork(x).first;
+            auto [result, cost, maxLevel] = solvePointMultilevelWithWork(x);
+            return result;
         }
 
         /**

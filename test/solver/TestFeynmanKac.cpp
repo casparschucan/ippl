@@ -206,24 +206,25 @@ public:
         ippl::Vector<double, Dim> test_pos(.5);
         solver_m.updateParameter("tolerance", epsilon);
         // iterate over 5 timesteps
-        for (int times = 0; times < 5; ++times) {
+        for (int times = 0; times < 1; ++times) {
             IpplTimings::startTimer(WoSTimer);
             // solve the Poisson equation -> rho contains the solution (phi) now
             solver_m.updateParameter("delta0", delta0_m);
-            std::pair<double, unsigned> res = solver_m.solvePointMultilevelWithWork(test_pos);
+            auto [res, work, maxLevel] = solver_m.solvePointMultilevelWithWork(test_pos);
             IpplTimings::stopTimer(WoSTimer);
-            double err = Kokkos::abs(res.first - sin(test_pos));
+            double err = Kokkos::abs(res - sin(test_pos));
             // compute the speedup to normal WoS Poisson
             double deltaTest = epsilon / 2.;
             solver_m.updateParameter("delta0", deltaTest);
-            MLMSample result = solver_m.solvePointAtLevel(test_pos, 0, Nsamples);
+            MLMSample pureWoS = solver_m.solvePointAtLevel(test_pos, 0, Nsamples);
             double varL =
-                (result.sampleSumSq - result.sampleSum * result.sampleSum / Nsamples) / Nsamples;
-            size_t costL   = result.CostSum * varL / (epsilon * epsilon * Nsamples);
-            double speedup = (double)costL / (double)res.second;
-            msg << std::setprecision(16) << res.first << " " << sin(test_pos) << " " << err
-                << " speedup: " << speedup << " NlCl: " << result.CostSum << " varL: " << varL
-                << " costL " << costL << " costMLMC: " << res.second << endl;
+                (pureWoS.sampleSumSq - pureWoS.sampleSum * pureWoS.sampleSum / Nsamples) / Nsamples;
+            double costL   = pureWoS.CostSum * varL / (epsilon * epsilon * Nsamples);
+            double speedup = (double)costL / (double)work;
+            msg << std::setprecision(16) << res << " " << sin(test_pos) << " " << err
+                << " speedup: " << speedup << " NlCl: " << pureWoS.CostSum << " varL: " << varL
+                << " costL " << costL << " costMLMC: " << work << " max Level: " << maxLevel
+                << endl;
         }
     }
 };
@@ -252,11 +253,11 @@ int main(int argc, char* argv[]) {
         PoissonTesterClass<2> twoD(Nr, delta0, N);
         PoissonTesterClass<3> threeD(Nr, delta0, N);
         PoissonTesterClass<4> fourD(Nr, delta0, N);
-        twoD.dimTest(N, msg);
+        // twoD.dimTest(N, msg);
         twoD.MLMCspeedupTest(N, epsilon, msg);
-        threeD.MLMCspeedupTest(N, epsilon, msg);
-        fourD.MLMCspeedupTest(N, epsilon, msg);
-        //  stop the timers
+        // threeD.MLMCspeedupTest(N, epsilon, msg);
+        // fourD.MLMCspeedupTest(N, epsilon, msg);
+        //   stop the timers
         IpplTimings::stopTimer(allTimer);
         IpplTimings::print();
         IpplTimings::print(std::string("timing.dat"));
