@@ -181,7 +181,7 @@ namespace ippl {
             return result;
         }
 
-        KOKKOS_INLINE_FUNCTION Tlhs solvePointParallel(Vector_t x, size_t N) {
+        Tlhs solvePointParallel(Vector_t x, size_t N) {
             // check if the point is in the domain
             assert(isInDomain(x) && "point is outside the domain");
             delta0_m           = this->params_m.template get<Tlhs>("delta0");
@@ -257,7 +257,7 @@ namespace ippl {
             return sample;
         }
 
-        KOKKOS_FUNCTION MultilevelSum solvePointAtLevel(Vector_t x, size_t level, size_t N) const {
+        MultilevelSum solvePointAtLevel(Vector_t x, size_t level, size_t N) const {
             // delta0_m = this->params_m.template get<Tlhs>("delta0");
             //  std::cout << "delta0: " << delta0_m << " for " << N << " samples" << std::endl;
             //   check if the point is in the domain
@@ -414,7 +414,7 @@ namespace ippl {
             return {result, totalCost, curMaxLevel};
         }
 
-        KOKKOS_FUNCTION Tlhs solvePointMultilevel(Vector_t x) {
+        Tlhs solvePointMultilevel(Vector_t x) {
             auto [result, cost, maxLevel] = solvePointMultilevelWithWork(x);
             return result;
         }
@@ -645,7 +645,7 @@ namespace ippl {
          * @param logErrs vector of log2 errors
          * @return slope of the line
          */
-        KOKKOS_FUNCTION Tlhs linFit(std::vector<Tlhs> logErrs) {
+        Tlhs linFit(std::vector<Tlhs> logErrs) {
             Tlhs sumX  = 0;
             Tlhs sumY  = 0;
             Tlhs sumXY = 0;
