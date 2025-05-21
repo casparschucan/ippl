@@ -310,19 +310,18 @@ namespace ippl {
             delta0_m        = this->params_m.template get<Tlhs>("delta0");
             size_t maxLevel = this->params_m.template get<int>("max_levels");
             epsilon_m       = this->params_m.template get<Tlhs>("tolerance");
-            Kokkos::View<size_t*> Ns("number of samples taken per level", maxLevel);
-            Kokkos::View<size_t*> Ndiff("number of samples we need additionally per level",
-                                        maxLevel);
-            Kokkos::View<Tlhs*> costs("cost per level", maxLevel);
-            Kokkos::View<Tlhs*> sum("sum of the samples per level", maxLevel);
-            Kokkos::View<Tlhs*> sumSq("sum of the samples per level", maxLevel);
+            std::vector<size_t> Ns(maxLevel);
+            std::vector<size_t> Ndiff(maxLevel);
+            std::vector<Tlhs> costs(maxLevel);
+            std::vector<Tlhs> sum(maxLevel);
+            std::vector<Tlhs> sumSq(maxLevel);
 
             for (unsigned i = 0; i < maxLevel; ++i) {
-                Ns(i)    = 10000;  // this->params_m.template get<size_t>("N_samples");
-                Ndiff(i) = Ns(i);
-                costs(i) = 0;
-                sum(i)   = 0;
-                sumSq(i) = 0;
+                Ns[i]    = 10000;  // this->params_m.template get<size_t>("N_samples");
+                Ndiff[i] = Ns[i];
+                costs[i] = 0;
+                sum[i]   = 0;
+                sumSq[i] = 0;
             }
 
             bool converged     = false;
@@ -331,10 +330,10 @@ namespace ippl {
                 // std::cout << "current level: " << curMaxLevel << std::endl;
                 //  sample the estimated samples at the current level
                 for (unsigned i = 0; i < curMaxLevel; ++i) {
-                    MultilevelSum sample = solvePointAtLevel(x, i, Ndiff(i));
-                    sum(i) += sample.sampleSum;
-                    sumSq(i) += sample.sampleSumSq;
-                    costs(i) += sample.CostSum;
+                    MultilevelSum sample = solvePointAtLevel(x, i, Ndiff[i]);
+                    sum[i] += sample.sampleSum;
+                    sumSq[i] += sample.sampleSumSq;
+                    costs[i] += sample.CostSum;
                     // std::cout << " samples: " << Ns(i) << " average: " << sum(i) / Ns(i)
                     //<< " sq average: " << sumSq(i) / Ns(i) << std::endl;
                 }
@@ -342,10 +341,10 @@ namespace ippl {
                 Tlhs varCostSumSq = 0;
                 // calculate the sum of the product of variance and cost per sample at each level
                 for (unsigned i = 0; i < curMaxLevel; ++i) {
-                    Tlhs variance = (sumSq(i) - sum(i) * sum(i) / Ns(i)) / Ns(i);
+                    Tlhs variance = (sumSq[i] - sum[i] * sum[i] / Ns[i]) / Ns[i];
                     assert(variance > 0 && "variance is negative");
                     variance           = Kokkos::max(variance, (Tlhs)1e-10);
-                    Tlhs costPerSample = costs(i) / Ns(i);
+                    Tlhs costPerSample = costs[i] / Ns[i];
 
                     varCostSumSq += Kokkos::sqrt(variance * costPerSample);
                 }
@@ -353,35 +352,35 @@ namespace ippl {
                 // calculate the number of samples we need to take at each level
                 for (unsigned i = 0; i < curMaxLevel; ++i) {
                     // calculate the variance
-                    Tlhs variance      = (sumSq(i) - sum(i) * sum(i) / Ns(i)) / Ns(i);
-                    Tlhs costPerSample = costs(i) / Ns(i);
+                    Tlhs variance      = (sumSq[i] - sum[i] * sum[i] / Ns[i]) / Ns[i];
+                    Tlhs costPerSample = costs[i] / Ns[i];
                     // estimate the number of samples we optimally take
                     size_t optimalNSamples = (Kokkos::sqrt(variance / costPerSample) * varCostSumSq)
                                              / (epsilon_m * epsilon_m);
-                    if (optimalNSamples > Ns(i)) {
-                        Ndiff(i) = optimalNSamples - Ns(i);
-                        Ns(i)    = optimalNSamples;
+                    if (optimalNSamples > Ns[i]) {
+                        Ndiff[i] = optimalNSamples - Ns[i];
+                        Ns[i]    = optimalNSamples;
                     } else {
-                        Ndiff(i) = 0;
+                        Ndiff[i] = 0;
                     }
                     // std::cout << "level: " << i << " additional samples: " << Ndiff(i)
                     //<< std::flush;
                     // add samples as needed
-                    MultilevelSum sample = solvePointAtLevel(x, i, Ndiff(i));
+                    MultilevelSum sample = solvePointAtLevel(x, i, Ndiff[i]);
                     // std::cout << sample.sampleSum << std::endl;
-                    sum(i) += sample.sampleSum;
-                    sumSq(i) += sample.sampleSumSq;
-                    costs(i) += sample.CostSum;
+                    sum[i] += sample.sampleSum;
+                    sumSq[i] += sample.sampleSumSq;
+                    costs[i] += sample.CostSum;
                     // std::cout << " samples: " << Ns(i) << " average: " << sum(i) / Ns(i)
                     //<< " sq average: " << sumSq(i) / Ns(i) << std::endl;
-                    Ndiff(i) = 0;
+                    Ndiff[i] = 0;
                 }
 
                 // estimate the convergence rate as the difference between the last two levels
-                Tlhs av1 = sum(curMaxLevel - 1) / Ns(curMaxLevel - 1);
+                Tlhs av1 = sum[curMaxLevel - 1] / Ns[curMaxLevel - 1];
                 std::vector<Tlhs> logErrs(curMaxLevel - 1);
                 for (unsigned i = 0; i < curMaxLevel - 1; ++i) {
-                    Tlhs average = sum(i + 1) / Ns(i + 1);
+                    Tlhs average = sum[i + 1] / Ns[i + 1];
                     logErrs[i]   = Kokkos::log2(average);
                 }
                 // std::cout << "average: " << av2 << " " << av1 << std::endl;
@@ -403,12 +402,12 @@ namespace ippl {
             // calculate the final result
             Tlhs result = 0;
             for (unsigned i = 0; i < curMaxLevel; ++i) {
-                result += sum(i) / Ns(i);
+                result += sum[i] / Ns[i];
             }
 
             WorkType totalCost = 0;
             for (unsigned i = 0; i < curMaxLevel; ++i) {
-                totalCost += costs(i);
+                totalCost += costs[i];
             }
 
             // std::cout << "maximal level used: " << curMaxLevel << std::endl;
