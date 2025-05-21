@@ -118,11 +118,11 @@ public:
         using index_array_type = typename ippl::RangePolicy<Dim>::index_array_type;
         ippl::parallel_for(
             "Assign rho field", rho_m.getFieldRangePolicy(),
-            KOKKOS_CLASS_LAMBDA(const index_array_type& args) {
+            KOKKOS_LAMBDA(const index_array_type& args) {
                 // go from local to global indices
                 ippl::Vector<double, Dim> xvec = (args + ldom.first() - nghost + 0.5) * dx;
 
-                ippl::apply(view_rho, args) = this->sinRhs(xvec);
+                ippl::apply(view_rho, args) = PoissonTesterClass::sinRhs(xvec);
             });
 
         // assign the exact field with its values (erf function)
@@ -130,11 +130,11 @@ public:
 
         ippl::parallel_for(
             "Assign exact field", exact_m.getFieldRangePolicy(),
-            KOKKOS_CLASS_LAMBDA(const index_array_type& args) {
+            KOKKOS_LAMBDA(const index_array_type& args) {
                 // go from local to global indices
                 ippl::Vector<double, Dim> xvec = (args + ldom.first() - nghost + 0.5) * dx;
 
-                ippl::apply(view_exact, args) = this->sin(xvec);
+                ippl::apply(view_exact, args) = PoissonTesterClass::sin(xvec);
             });
         // Parameter List to pass to solver
         ippl::ParameterList params;
@@ -154,7 +154,7 @@ public:
         CGtimerName_m.append(Dimstring);
     }
 
-    KOKKOS_INLINE_FUNCTION double sinRhs(ippl::Vector<double, Dim> x) const {
+    static KOKKOS_INLINE_FUNCTION double sinRhs(ippl::Vector<double, Dim> x) {
         double pi  = Kokkos::numbers::pi_v<double>;
         double res = pi * pi * Dim;
         for (unsigned int i = 0; i < Dim; i++) {
@@ -163,7 +163,7 @@ public:
         return res;
     }
 
-    KOKKOS_INLINE_FUNCTION double sin(ippl::Vector<double, Dim> x) const {
+    static KOKKOS_INLINE_FUNCTION double sin(ippl::Vector<double, Dim> x) {
         double pi  = Kokkos::numbers::pi_v<double>;
         double res = 1;
         for (unsigned int i = 0; i < Dim; i++) {
@@ -171,7 +171,7 @@ public:
         }
         return res;
     }
-    KOKKOS_FUNCTION void dimTest(int Nsamples, Inform& msg) {
+    void dimTest(int Nsamples, Inform& msg) {
         IpplTimings::TimerRef WoSTimer = IpplTimings::getTimer(timerName_m.c_str());
         IpplTimings::TimerRef CGTimer  = IpplTimings::getTimer(CGtimerName_m.c_str());
 

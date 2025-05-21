@@ -219,7 +219,7 @@ namespace ippl {
 
             bool coarseIn = true;
 
-            Tlhs delta_ratio = 32;
+            Tlhs delta_ratio = 16;
 
             Tlhs deltaCoarse = delta0_m / Kokkos::pow(delta_ratio, level - 1);
             Tlhs deltaFine   = deltaCoarse / delta_ratio;
