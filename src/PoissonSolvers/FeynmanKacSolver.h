@@ -306,8 +306,7 @@ namespace ippl {
             return result;
         }
 
-        KOKKOS_FUNCTION std::tuple<Tlhs, WorkType, WorkType> solvePointMultilevelWithWork(
-            Vector_t x) {
+        std::tuple<Tlhs, WorkType, WorkType> solvePointMultilevelWithWork(Vector_t x) {
             delta0_m        = this->params_m.template get<Tlhs>("delta0");
             size_t maxLevel = this->params_m.template get<int>("max_levels");
             epsilon_m       = this->params_m.template get<Tlhs>("tolerance");
