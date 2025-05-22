@@ -40,7 +40,7 @@ namespace ippl {
         using typename Base::lhs_type, typename Base::rhs_type;
         using InverseDiagonalRet = double;
         using DiagRet            = double;
-        using WorkType           = unsigned int;
+        using WorkType           = size_t;
         using GeneratorPool      = typename Kokkos::Random_XorShift64_Pool<>;
         using Vector_t           = ippl::Vector<Tlhs, Dim>;
 
@@ -312,7 +312,7 @@ namespace ippl {
          * @param x The point to solve at
          * @return The solution at the point
          */
-        std::tuple<Tlhs, WorkType, WorkType> solvePointMultilevelWithWork(Vector_t x) {
+        std::tuple<Tlhs, Tlhs, WorkType> solvePointMultilevelWithWork(Vector_t x) {
             delta0_m        = this->params_m.template get<Tlhs>("delta0");
             size_t maxLevel = this->params_m.template get<int>("max_levels");
             epsilon_m       = this->params_m.template get<Tlhs>("tolerance");
@@ -377,8 +377,8 @@ namespace ippl {
                     sum[i] += sample.sampleSum;
                     sumSq[i] += sample.sampleSumSq;
                     costs[i] += sample.CostSum;
-                    std::cout << " samples: " << Ns[i] << " average: " << sum[i] / Ns[i]
-                              << " sq average: " << sumSq[i] / Ns[i] << std::endl;
+                    // std::cout << " samples: " << Ns[i] << " average: " << sum[i] / Ns[i]
+                    //<< " sq average: " << sumSq[i] / Ns[i] << std::endl;
                     Ndiff[i] = 0;
                 }
 
@@ -391,11 +391,11 @@ namespace ippl {
                 }
                 // std::cout << "average: " << av2 << " " << av1 << std::endl;
                 Tlhs alpha = -linFit(logErrs);
-                std::cout << "convergence rate: " << alpha << std::endl;
+                // std::cout << "convergence rate: " << alpha << std::endl;
                 alpha = Kokkos::max(alpha, (Tlhs)0.5);
 
                 Tlhs estError = Kokkos::abs(av1) / (Kokkos::pow(2, alpha) - 1);
-                std::cout << "estimated error: " << estError * 2 << std::endl;
+                // std::cout << "estimated error: " << estError * 2 << std::endl;
                 if (estError * 2 < epsilon_m) {
                     // std::cout << "converged with error: " << estError << std::endl;
                     converged = true;
@@ -411,7 +411,7 @@ namespace ippl {
                 result += sum[i] / Ns[i];
             }
 
-            WorkType totalCost = 0;
+            Tlhs totalCost = 0;
             for (unsigned i = 0; i < curMaxLevel; ++i) {
                 totalCost += costs[i];
             }
