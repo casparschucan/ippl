@@ -306,6 +306,12 @@ namespace ippl {
             return result;
         }
 
+        /**
+         * @brief Solve the Poisson equation at a given point using The
+         * Feynman-Kac formula in a multilevel Monte Carlo approach
+         * @param x The point to solve at
+         * @return The solution at the point
+         */
         std::tuple<Tlhs, WorkType, WorkType> solvePointMultilevelWithWork(Vector_t x) {
             delta0_m        = this->params_m.template get<Tlhs>("delta0");
             size_t maxLevel = this->params_m.template get<int>("max_levels");
@@ -371,8 +377,8 @@ namespace ippl {
                     sum[i] += sample.sampleSum;
                     sumSq[i] += sample.sampleSumSq;
                     costs[i] += sample.CostSum;
-                    // std::cout << " samples: " << Ns(i) << " average: " << sum(i) / Ns(i)
-                    //<< " sq average: " << sumSq(i) / Ns(i) << std::endl;
+                    std::cout << " samples: " << Ns[i] << " average: " << sum[i] / Ns[i]
+                              << " sq average: " << sumSq[i] / Ns[i] << std::endl;
                     Ndiff[i] = 0;
                 }
 
@@ -385,11 +391,11 @@ namespace ippl {
                 }
                 // std::cout << "average: " << av2 << " " << av1 << std::endl;
                 Tlhs alpha = -linFit(logErrs);
-                // std::cout << "convergence rate: " << alpha << std::endl;
+                std::cout << "convergence rate: " << alpha << std::endl;
                 alpha = Kokkos::max(alpha, (Tlhs)0.5);
 
                 Tlhs estError = Kokkos::abs(av1) / (Kokkos::pow(2, alpha) - 1);
-                // std::cout << "estimated error: " << estError * 2 << std::endl;
+                std::cout << "estimated error: " << estError * 2 << std::endl;
                 if (estError * 2 < epsilon_m) {
                     // std::cout << "converged with error: " << estError << std::endl;
                     converged = true;
@@ -545,9 +551,9 @@ namespace ippl {
     protected:
         void setDefaultParameters() override {
             this->params_m.add("max_levels", 10);
-            this->params_m.add("N_samples", 1000000000);
-            this->params_m.add("tolerance", (Tlhs)1e-3);
-            this->params_m.add("delta0", (Tlhs)0.000001);
+            this->params_m.add("N_samples", 10000);
+            this->params_m.add("tolerance", (Tlhs)1e-4);
+            this->params_m.add("delta0", (Tlhs)0.01);
         }
 
         /**

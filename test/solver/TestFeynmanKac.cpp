@@ -63,6 +63,7 @@ public:
         , mesh_m(other.mesh_m)
         , layout_m(other.layout_m)
         , solver_m(other.solver_m)
+        , CGSolver_m(other.phi_m, other.rho_m)
         , timerName_m(other.timerName_m)
         , CGtimerName_m(other.CGtimerName_m)
         , delta0_m(other.delta0_m) {}
