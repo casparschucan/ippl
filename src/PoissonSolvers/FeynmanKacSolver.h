@@ -134,6 +134,7 @@ namespace ippl {
             delta0_m              = this->params_m.template get<Tlhs>("delta0");
             epsilon_m             = this->params_m.template get<Tlhs>("tolerance");
             Nsamples_m            = this->params_m.template get<int>("N_samples");
+            deltaRatio_m          = this->params_m.template get<Tlhs>("deltaRatio");
         }
 
         KOKKOS_INLINE_FUNCTION Tlhs sinRhs(Vector_t x) const {
@@ -243,10 +244,8 @@ namespace ippl {
 
             bool coarseIn = true;
 
-            Tlhs delta_ratio = this->params_m.template get<Tlhs>("deltaRatio");
-
-            Tlhs deltaCoarse = delta0_m / Kokkos::pow(delta_ratio, level - 1);
-            Tlhs deltaFine   = deltaCoarse / delta_ratio;
+            Tlhs deltaCoarse = delta0_m / Kokkos::pow(deltaRatio_m, level - 1);
+            Tlhs deltaFine   = deltaCoarse / deltaRatio_m;
 
             while (true) {
                 Tlhs distance = getDistanceToBoundary(x);
@@ -282,7 +281,8 @@ namespace ippl {
         }
 
         MultilevelSum solvePointAtLevel(Vector_t x, size_t level, size_t N) {
-            delta0_m = this->params_m.template get<Tlhs>("delta0");
+            deltaRatio_m = this->params_m.template get<Tlhs>("deltaRatio");
+            delta0_m     = this->params_m.template get<Tlhs>("delta0");
             //  std::cout << "delta0: " << delta0_m << " for " << N << " samples" << std::endl;
             //   check if the point is in the domain
             assert(isInDomain(x) && "point is outside the domain");
@@ -707,6 +707,7 @@ namespace ippl {
 
         Tlhs delta0_m;
         Tlhs epsilon_m;
+        Tlhs deltaRatio_m;
         // the integral of green's function over the unit sphere
         constexpr static Tlhs sphereVolume_s = 1.0 / (2.0 * Dim);
         Tlhs pi_m;
