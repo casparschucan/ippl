@@ -181,6 +181,31 @@ namespace ippl {
             return result;
         }
 
+        Tlhs solvePointToTolerance(Vector_t x) {
+            delta0_m   = this->params_m.template get<Tlhs>("delta0");
+            epsilon_m  = this->params_m.template get<Tlhs>("tolerance");
+            Nsamples_m = this->params_m.template get<int>("N_samples");
+            // check if the point is in the domain
+            assert(isInDomain(x) && "point is outside the domain");
+            MultilevelSum result;
+            result    = solvePointAtLevel(x, 0, Nsamples_m);
+            Tlhs varL = (result.sampleSumSq - result.sampleSum * result.sampleSum / Nsamples_m)
+                        / Nsamples_m;
+            size_t Nsamples = Nsamples_m;
+            do {
+                // estimate the number of samples needed to reach the tolerance
+                size_t NsamplesOptimal =
+                    Kokkos::max((Tlhs)1., (Tlhs)Kokkos::ceil(varL / (epsilon_m * epsilon_m)));
+                size_t NsamplesDiff =
+                    Kokkos::max((Tlhs)0., (Tlhs)Kokkos::ceil(NsamplesOptimal - Nsamples));
+                result += solvePointAtLevel(x, 0, NsamplesDiff);
+                Nsamples += NsamplesDiff;
+                varL = (result.sampleSumSq - result.sampleSum * result.sampleSum / result.Nsamples)
+                       / result.Nsamples;
+            } while (Nsamples < varL / (epsilon_m * epsilon_m));
+            return result.sampleSum / result.Nsamples;
+        }
+
         Tlhs solvePointParallel(Vector_t x, size_t N) {
             // check if the point is in the domain
             assert(isInDomain(x) && "point is outside the domain");
@@ -196,7 +221,6 @@ namespace ippl {
                 if (i == Niter - 1) {
                     Nsamples = Kokkos::min(maxParallelN + N % maxParallelN, N);
                 }
-                // std::cout << "Nsamples: " << Nsamples << std::endl;
                 Kokkos::parallel_reduce(
                     "homogeneousWoSTest", Kokkos::RangePolicy<>(0, Nsamples),
                     KOKKOS_CLASS_LAMBDA(const int /*i*/, Tlhs& val) { val += WoS(x).sample; },
@@ -219,7 +243,7 @@ namespace ippl {
 
             bool coarseIn = true;
 
-            Tlhs delta_ratio = 16;
+            Tlhs delta_ratio = this->params_m.template get<Tlhs>("deltaRatio");
 
             Tlhs deltaCoarse = delta0_m / Kokkos::pow(delta_ratio, level - 1);
             Tlhs deltaFine   = deltaCoarse / delta_ratio;
@@ -257,8 +281,8 @@ namespace ippl {
             return sample;
         }
 
-        MultilevelSum solvePointAtLevel(Vector_t x, size_t level, size_t N) const {
-            // delta0_m = this->params_m.template get<Tlhs>("delta0");
+        MultilevelSum solvePointAtLevel(Vector_t x, size_t level, size_t N) {
+            delta0_m = this->params_m.template get<Tlhs>("delta0");
             //  std::cout << "delta0: " << delta0_m << " for " << N << " samples" << std::endl;
             //   check if the point is in the domain
             assert(isInDomain(x) && "point is outside the domain");
@@ -316,6 +340,7 @@ namespace ippl {
             delta0_m        = this->params_m.template get<Tlhs>("delta0");
             size_t maxLevel = this->params_m.template get<int>("max_levels");
             epsilon_m       = this->params_m.template get<Tlhs>("tolerance");
+            Nsamples_m      = this->params_m.template get<int>("N_samples");
             std::vector<size_t> Ns(maxLevel);
             std::vector<size_t> Ndiff(maxLevel);
             std::vector<Tlhs> costs(maxLevel);
@@ -323,7 +348,7 @@ namespace ippl {
             std::vector<Tlhs> sumSq(maxLevel);
 
             for (unsigned i = 0; i < maxLevel; ++i) {
-                Ns[i]    = 10000;  // this->params_m.template get<size_t>("N_samples");
+                Ns[i]    = Nsamples_m;
                 Ndiff[i] = Ns[i];
                 costs[i] = 0;
                 sum[i]   = 0;
@@ -554,6 +579,7 @@ namespace ippl {
             this->params_m.add("N_samples", 10000);
             this->params_m.add("tolerance", (Tlhs)1e-4);
             this->params_m.add("delta0", (Tlhs)0.01);
+            this->params_m.add("deltaRatio", (Tlhs)16);
         }
 
         /**
