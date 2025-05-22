@@ -4,13 +4,15 @@
 // Dirichlet boundary for different dimensions
 // The solve is iterated 5 times for the purpose of timing studies.
 //   Usage:
-//     srun ./TestFeynmanKac <nx> <N> <delta0> --info 5
+//     srun ./TestFeynmanKac <nx> <N> <delta0> <epsilon> <deltaRatio> --info 5
 //     nx        = No. cell-centered points in the each dimension-direction
 //     N         = No. samples per cell-centered point
 //     delta0    = the cutoff distance to the boundary
+//     epsilon   = the tolerance for the convergence of the multilevel method
+//     deltaRatio  = the ratio of the cutoff distance between two levels
 //
 //     Example:
-//       srun ./TestFeynmanKac 64 10000 0.01 --info 5
+//       srun ./TestFeynmanKac 64 10000 0.01 1e-3 16 --info 5
 //
 //
 
@@ -21,6 +23,7 @@
 #include <Kokkos_MathematicalFunctions.hpp>
 #include <cstdlib>
 #include <cstring>
+#include <iomanip>
 #include <string>
 #include <utility>
 
@@ -53,7 +56,9 @@ public:
     CGSolver_t CGSolver_m;
     std::string timerName_m;
     std::string CGtimerName_m;
+    std::string mlmctimerName_m;
     double delta0_m;
+    double deltaRatio_m;
 
     // copy constructor
     PoissonTesterClass(const PoissonTesterClass& other)
@@ -66,10 +71,13 @@ public:
         , CGSolver_m(other.phi_m, other.rho_m)
         , timerName_m(other.timerName_m)
         , CGtimerName_m(other.CGtimerName_m)
-        , delta0_m(other.delta0_m) {}
+        , mlmctimerName_m(other.mlmctimerName_m)
+        , delta0_m(other.delta0_m)
+        , deltaRatio_m(other.deltaRatio_m) {}
 
-    PoissonTesterClass(int Nr, double delta0, int Nsamples)
-        : delta0_m(delta0) {
+    PoissonTesterClass(int Nr, double delta0, double deltaRatio, int Nsamples)
+        : delta0_m(delta0)
+        , deltaRatio_m(deltaRatio) {
         initialize(Nr, Nsamples);
     }
 
@@ -153,6 +161,8 @@ public:
         timerName_m.append(Dimstring);
         CGtimerName_m = "CGTimer";
         CGtimerName_m.append(Dimstring);
+        mlmctimerName_m = "MLMCTimer";
+        mlmctimerName_m.append(Dimstring);
     }
 
     static KOKKOS_INLINE_FUNCTION double sinRhs(ippl::Vector<double, Dim> x) {
@@ -214,30 +224,45 @@ public:
     }
 
     void MLMCspeedupTest(size_t Nsamples, double epsilon, Inform& msg) {
-        IpplTimings::TimerRef WoSTimer = IpplTimings::getTimer(timerName_m.c_str());
-
+        IpplTimings::TimerRef WoSTimer  = IpplTimings::getTimer(timerName_m.c_str());
+        IpplTimings::TimerRef MLMCTimer = IpplTimings::getTimer(mlmctimerName_m.c_str());
         ippl::Vector<double, Dim> test_pos(.5);
         solver_m.updateParameter("tolerance", epsilon);
+        solver_m.updateParameter("deltaRatio", deltaRatio_m);
         // iterate over 5 timesteps
         for (int times = 0; times < 5; ++times) {
-            IpplTimings::startTimer(WoSTimer);
+            IpplTimings::startTimer(MLMCTimer);
             // solve the Poisson equation -> rho contains the solution (phi) now
             solver_m.updateParameter("delta0", delta0_m);
             auto [res, work, maxLevel] = solver_m.solvePointMultilevelWithWork(test_pos);
-            IpplTimings::stopTimer(WoSTimer);
+            IpplTimings::stopTimer(MLMCTimer);
             double err = Kokkos::abs(res - sin(test_pos));
             // compute the speedup to normal WoS Poisson
-            double deltaTest = epsilon / 2.;
+            double deltaTest = delta0_m / (Kokkos::pow(deltaRatio_m, maxLevel));
             solver_m.updateParameter("delta0", deltaTest);
             MLMSample pureWoS = solver_m.solvePointAtLevel(test_pos, 0, Nsamples);
             double varL =
                 (pureWoS.sampleSumSq - pureWoS.sampleSum * pureWoS.sampleSum / Nsamples) / Nsamples;
+
+            // estimate the cost for standard MC at epsilon precision
             double costL   = pureWoS.CostSum * varL / (epsilon * epsilon * Nsamples);
             double speedup = (double)costL / (double)work;
-            msg << std::setprecision(16) << res << " " << sin(test_pos) << " " << err
-                << " speedup: " << speedup << " NlCl: " << pureWoS.CostSum << " varL: " << varL
-                << " costL " << costL << " costMLMC: " << work << " max Level: " << maxLevel
-                << endl;
+
+            // solve to tolerance without mlmc
+            IpplTimings::startTimer(WoSTimer);
+            double MCresult = solver_m.solvePointToTolerance(test_pos);
+            IpplTimings::stopTimer(WoSTimer);
+
+            // print human readable comparison
+            msg << std::setprecision(16) << "MLMC result: " << std::setw(20) << res
+                << " MLMC error: " << std::setw(20) << err << " MC result: " << std::setw(20)
+                << MCresult << " MC error: " << std::setw(20)
+                << Kokkos::abs(MCresult - sin(test_pos)) << " ground truth: " << std::setw(20)
+                << sin(test_pos) << endl;
+
+            msg << std::setprecision(16) << " speedup: " << speedup << " NlCl: " << pureWoS.CostSum
+                << " varL: " << varL << " costL " << costL << " costMLMC: " << work
+                << " max Level: " << maxLevel << endl;
         }
     }
 };
@@ -256,20 +281,23 @@ int main(int argc, char* argv[]) {
         unsigned long N = std::atoi(argv[2]);
 
         // get the delta
-        double delta0  = std::strtod(argv[3], 0);
-        double epsilon = std::strtod(argv[4], 0);
+        double delta0     = std::strtod(argv[3], 0);
+        double epsilon    = std::strtod(argv[4], 0);
+        double deltaRatio = std::strtod(argv[5], 0);
 
         // print out info and title for the relative error (L2 norm)
         msg << "Test FeynmanKac, grid = " << Nr << " N samples = " << N << " delta0 = " << delta0
             << endl;
 
-        PoissonTesterClass<2> twoD(Nr, delta0, N);
-        PoissonTesterClass<3> threeD(Nr, delta0, N);
-        PoissonTesterClass<4> fourD(Nr, delta0, N);
+        PoissonTesterClass<2> twoD(Nr, delta0, deltaRatio, N);
+        PoissonTesterClass<3> threeD(Nr, delta0, deltaRatio, N);
+        PoissonTesterClass<4> fourD(Nr, delta0, deltaRatio, N);
+        PoissonTesterClass<5> fiveD(Nr, delta0, deltaRatio, N);
         // twoD.dimTest(N, msg);
         twoD.MLMCspeedupTest(N, epsilon, msg);
         threeD.MLMCspeedupTest(N, epsilon, msg);
         fourD.MLMCspeedupTest(N, epsilon, msg);
+        fiveD.MLMCspeedupTest(N, epsilon, msg);
         //   stop the timers
         IpplTimings::stopTimer(allTimer);
         IpplTimings::print();
