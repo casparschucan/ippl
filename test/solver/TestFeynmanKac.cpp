@@ -4,15 +4,17 @@
 // Dirichlet boundary for different dimensions
 // The solve is iterated 5 times for the purpose of timing studies.
 //   Usage:
-//     srun ./TestFeynmanKac <nx> <N> <delta0> <epsilon> <deltaRatio> --info 5
+//     srun ./TestFeynmanKac <nx> <N> <delta0> <epsilon> <deltaRatio> <testType> --info 5
 //     nx        = No. cell-centered points in the each dimension-direction
 //     N         = No. samples per cell-centered point
 //     delta0    = the cutoff distance to the boundary
 //     epsilon   = the tolerance for the convergence of the multilevel method
 //     deltaRatio  = the ratio of the cutoff distance between two levels
+//     testType  = the type of test to run options are:
+//              CGComparison, convergenceTest, mlmcSpeedup
 //
 //     Example:
-//       srun ./TestFeynmanKac 64 10000 0.01 1e-3 16 --info 5
+//       srun ./TestFeynmanKac 64 10000 0.01 1e-3 16 mlmcSpeedup --info 5
 //
 //
 
@@ -182,32 +184,40 @@ public:
         }
         return res;
     }
-    void dimTest(int Nsamples, Inform& msg) {
-        IpplTimings::TimerRef WoSTimer = IpplTimings::getTimer(timerName_m.c_str());
-        IpplTimings::TimerRef CGTimer  = IpplTimings::getTimer(CGtimerName_m.c_str());
+    void CGComparison(double epsilon, Inform& msg) {
+        IpplTimings::TimerRef MLMCTimer = IpplTimings::getTimer(mlmctimerName_m.c_str());
+        IpplTimings::TimerRef CGTimer   = IpplTimings::getTimer(CGtimerName_m.c_str());
+
+        solver_m.updateParameter("tolerance", epsilon);
 
         ippl::Vector<double, Dim> test_pos(.5);
         // iterate over 5 timesteps
         for (int times = 0; times < 5; ++times) {
-            IpplTimings::startTimer(WoSTimer);
+            IpplTimings::startTimer(MLMCTimer);
             // solve the Poisson equation -> rho contains the solution (phi) now
-            solver_m.solvePointParallel(test_pos, Nsamples);
-            IpplTimings::stopTimer(WoSTimer);
+            double result = solver_m.solvePointMultilevel(test_pos);
+            IpplTimings::stopTimer(MLMCTimer);
             phi_m      = phi_m - exact_m;
-            double err = norm(phi_m) / norm(exact_m);
+            double err = Kokkos::abs(result - sin(test_pos));
 
-            msg << std::setprecision(16) << norm(phi_m) << " " << norm(exact_m) << " " << err
-                << endl;
+            msg << std::setprecision(16) << "MLMC error: " << err << endl;
 
             IpplTimings::startTimer(CGTimer);
 
             CGSolver_m.solve();
             IpplTimings::stopTimer(CGTimer);
 
+            ippl::Vector<size_t, Dim> index =
+                ippl::Floor((test_pos - mesh_m.getOrigin()) / mesh_m.getMeshSpacing() - 0.5);
+
+            double CGres = ippl::apply(phi_m.getView(), index);
+            err          = Kokkos::abs(CGres - sin(test_pos));
+            msg << std::setprecision(16) << "CG error: " << err << endl;
+
             // compute relative error norm for potential
         }
     }
-    void convergenceTest(size_t Nsamples, double delta0, Inform& msg) {
+    void convergenceTest(size_t Nsamples, Inform& msg) {
         IpplTimings::TimerRef WoSTimer = IpplTimings::getTimer(timerName_m.c_str());
 
         ippl::Vector<double, Dim> test_pos(.5);
@@ -284,20 +294,43 @@ int main(int argc, char* argv[]) {
         double delta0     = std::strtod(argv[3], 0);
         double epsilon    = std::strtod(argv[4], 0);
         double deltaRatio = std::strtod(argv[5], 0);
+        std::string testType(argv[6]);
 
         // print out info and title for the relative error (L2 norm)
         msg << "Test FeynmanKac, grid = " << Nr << " N samples = " << N << " delta0 = " << delta0
-            << endl;
+            << " epsilon = " << epsilon << endl;
 
-        PoissonTesterClass<2> twoD(Nr, delta0, deltaRatio, N);
-        PoissonTesterClass<3> threeD(Nr, delta0, deltaRatio, N);
-        PoissonTesterClass<4> fourD(Nr, delta0, deltaRatio, N);
-        PoissonTesterClass<5> fiveD(Nr, delta0, deltaRatio, N);
-        // twoD.dimTest(N, msg);
-        twoD.MLMCspeedupTest(N, epsilon, msg);
-        threeD.MLMCspeedupTest(N, epsilon, msg);
-        fourD.MLMCspeedupTest(N, epsilon, msg);
-        fiveD.MLMCspeedupTest(N, epsilon, msg);
+        if (testType == "CGComparison") {
+            msg << "CG Comparison test" << endl;
+            PoissonTesterClass<2> twoD(Nr, delta0, deltaRatio, N);
+            PoissonTesterClass<3> threeD(Nr, delta0, deltaRatio, N);
+            PoissonTesterClass<4> fourD(Nr, delta0, deltaRatio, N);
+            twoD.CGComparison(epsilon, msg);
+            threeD.CGComparison(epsilon, msg);
+            fourD.CGComparison(epsilon, msg);
+        } else if (testType == "convergenceTest") {
+            msg << "WoS Convergence test" << endl;
+            PoissonTesterClass<2> twoD(Nr, delta0, deltaRatio, N);
+            PoissonTesterClass<3> threeD(Nr, delta0, deltaRatio, N);
+            PoissonTesterClass<4> fourD(Nr, delta0, deltaRatio, N);
+            PoissonTesterClass<5> fiveD(Nr, delta0, deltaRatio, N);
+            twoD.convergenceTest(N, msg);
+            threeD.convergenceTest(N, msg);
+            fourD.convergenceTest(N, msg);
+            fiveD.convergenceTest(N, msg);
+        } else if (testType == "mlmcSpeedup") {
+            msg << "MLMC speedup test" << endl;
+            PoissonTesterClass<2> twoD(Nr, delta0, deltaRatio, N);
+            PoissonTesterClass<3> threeD(Nr, delta0, deltaRatio, N);
+            PoissonTesterClass<4> fourD(Nr, delta0, deltaRatio, N);
+            PoissonTesterClass<5> fiveD(Nr, delta0, deltaRatio, N);
+            twoD.MLMCspeedupTest(N, epsilon, msg);
+            threeD.MLMCspeedupTest(N, epsilon, msg);
+            fourD.MLMCspeedupTest(N, epsilon, msg);
+            fiveD.MLMCspeedupTest(N, epsilon, msg);
+        } else {
+            std::cout << "Unknown test type: " << testType << std::endl;
+        }
         //   stop the timers
         IpplTimings::stopTimer(allTimer);
         IpplTimings::print();
