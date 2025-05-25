@@ -193,26 +193,41 @@ public:
         ippl::Vector<double, Dim> test_pos(.5);
         // iterate over 5 timesteps
         for (int times = 0; times < 5; ++times) {
+            // reset the MLMC timer
+            IpplTimings::infoTimer(mlmctimerName_m.c_str())->wallTime = 0;
+            // time the MLMC solve at the test position
             IpplTimings::startTimer(MLMCTimer);
             // solve the Poisson equation -> rho contains the solution (phi) now
             double result = solver_m.solvePointMultilevel(test_pos);
             IpplTimings::stopTimer(MLMCTimer);
-            phi_m      = phi_m - exact_m;
-            double err = Kokkos::abs(result - sin(test_pos));
 
-            msg << std::setprecision(16) << "MLMC error: " << err << endl;
+            // calculate the error
+            double MLMCtime = IpplTimings::infoTimer(mlmctimerName_m.c_str())->wallTime;
+            double err      = Kokkos::abs(result - sin(test_pos));
+            msg << std::setprecision(16) << "MLMC error: " << err << " in " << MLMCtime << "s"
+                << endl;
 
+            // reset CG timer
+            IpplTimings::infoTimer(CGtimerName_m.c_str())->wallTime = 0;
+            // time theCG solve
             IpplTimings::startTimer(CGTimer);
 
             CGSolver_m.solve();
             IpplTimings::stopTimer(CGTimer);
+            double CGtime = IpplTimings::infoTimer(CGtimerName_m.c_str())->wallTime;
 
+            // calculate the error at the test position
             ippl::Vector<size_t, Dim> index =
                 ippl::Floor((test_pos - mesh_m.getOrigin()) / mesh_m.getMeshSpacing() - 0.5);
 
             double CGres = ippl::apply(phi_m.getView(), index);
             err          = Kokkos::abs(CGres - sin(test_pos));
-            msg << std::setprecision(16) << "CG error: " << err << endl;
+
+            // calculate the relative L2 error
+            phi_m        = phi_m - exact_m;
+            double L2err = norm(phi_m) / norm(exact_m);
+            msg << std::setprecision(16) << "CG error: " << err << " relative L2 error " << L2err
+                << " expected L2 " << norm(exact_m) << " in " << CGtime << "s" << endl;
 
             // compute relative error norm for potential
         }
