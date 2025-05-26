@@ -249,7 +249,7 @@ namespace ippl {
 
             Tlhs distance = getDistanceToBoundary(x);
 
-            while (distance >= delta0_m) {
+            while (distance >= deltaFine) {
                 if (distance < deltaCoarse && coarseIn) {
                     coarseIn = false;
                 }
