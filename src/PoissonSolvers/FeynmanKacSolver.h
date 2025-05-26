@@ -247,23 +247,19 @@ namespace ippl {
             Tlhs deltaCoarse = delta0_m / Kokkos::pow(deltaRatio_m, level - 1);
             Tlhs deltaFine   = deltaCoarse / deltaRatio_m;
 
-            while (true) {
-                Tlhs distance = getDistanceToBoundary(x);
+            Tlhs distance = getDistanceToBoundary(x);
+
+            while (distance >= delta0_m) {
+                if (distance < deltaCoarse && coarseIn) {
+                    coarseIn = false;
+                }
                 // sample the offset by sampling the sphere with radius distance
                 Vector_t offset = sampleSurface(distance);
                 Vector_t x_next = x + offset;
                 // check if we are in the domain
                 assert(isInDomain(x_next) && "sampled point is outside the domain");
 
-                if (distance < deltaFine) {
-                    sample.work += Dim;
-                    // if we are close to the boundary, we stop the walk
-                    x = x_next;
-                    break;
-                }
-                if (distance < deltaCoarse && coarseIn) {
-                    coarseIn = false;
-                }
+                sample.work += Dim;
 
                 if (!coarseIn) {
                     // sample the Green's function density
@@ -271,10 +267,11 @@ namespace ippl {
 
                     sample.sample += sphereVolume_s * distance * distance * sinRhs(y_j);
                     // calculate the work done
-                    sample.work += 2 * Dim;
+                    sample.work += Dim;
                 }
 
-                x = x_next;
+                x        = x_next;
+                distance = getDistanceToBoundary(x);
             }
             return sample;
         }
@@ -462,20 +459,13 @@ namespace ippl {
 
             Vector_t x = x0;
 
-            while (true) {
-                Tlhs distance = getDistanceToBoundary(x);
+            Tlhs distance = getDistanceToBoundary(x);
+            while (distance >= delta0_m) {
                 // sample the offset by sampling the sphere with radius distance
                 Vector_t offset = sampleSurface(distance);
                 Vector_t x_next = x + offset;
                 // check if we are in the domain
                 assert(isInDomain(x_next) && "sampled point is outside the domain");
-
-                if (distance < delta0_m) {
-                    sample.work += Dim;
-                    // if we are close to the boundary, we stop the walk
-                    x = x_next;
-                    break;
-                }
 
                 // sample the Green's function density
                 Vector_t y_j = x + sampleGreenDensity(distance);
@@ -484,7 +474,8 @@ namespace ippl {
                 // calculate the work done
                 sample.work += 2 * Dim;
 
-                x = x_next;
+                x        = x_next;
+                distance = getDistanceToBoundary(x);
             }
             return sample;
         }
