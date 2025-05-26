@@ -265,15 +265,14 @@ namespace ippl {
                     coarseIn = false;
                 }
 
-                // sample the Green's function density
-                Vector_t y_j = x + sampleGreenDensity(distance);
-
                 if (!coarseIn) {
-                    sample.sample += sphereVolume_s * distance * distance * sinRhs(y_j);
-                }
+                    // sample the Green's function density
+                    Vector_t y_j = x + sampleGreenDensity(distance);
 
-                // calculate the work done
-                sample.work += 2 * Dim;
+                    sample.sample += sphereVolume_s * distance * distance * sinRhs(y_j);
+                    // calculate the work done
+                    sample.work += 2 * Dim;
+                }
 
                 x = x_next;
             }
