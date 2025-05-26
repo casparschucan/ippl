@@ -254,6 +254,10 @@ public:
         ippl::Vector<double, Dim> test_pos(.5);
         solver_m.updateParameter("tolerance", epsilon);
         solver_m.updateParameter("deltaRatio", deltaRatio_m);
+        msg << std::setw(20) << "epsilon," << std::setw(20) << "Dimension," << std::setw(20)
+            << "MLMC result," << std::setw(20) << "MC result," << std::setw(20) << "expected,"
+            << std::setw(20) << "MLMC cost," << std::setw(20) << "MC cost," << std::setw(20)
+            << "max Level," << std::setw(20) << "varL," << endl;
         // iterate over 5 timesteps
         for (int times = 0; times < 5; ++times) {
             IpplTimings::startTimer(MLMCTimer);
@@ -278,16 +282,12 @@ public:
             double MCresult = solver_m.solvePointToTolerance(test_pos);
             IpplTimings::stopTimer(WoSTimer);
 
-            // print human readable comparison
-            msg << std::setprecision(16) << "MLMC result: " << std::setw(20) << res
-                << " MLMC error: " << std::setw(20) << err << " MC result: " << std::setw(20)
-                << MCresult << " MC error: " << std::setw(20)
-                << Kokkos::abs(MCresult - sin(test_pos)) << " ground truth: " << std::setw(20)
-                << sin(test_pos) << endl;
-
-            msg << std::setprecision(16) << " speedup: " << speedup << " NlCl: " << pureWoS.CostSum
-                << " varL: " << varL << " costL " << costL << " costMLMC: " << work
-                << " max Level: " << maxLevel << endl;
+            // print table based comparison
+            msg << std::setprecision(16) << std::fixed << std::setw(20) << epsilon << ","
+                << std::setw(20) << Dim << "," << std::setw(20) << res << "," << std::setw(20)
+                << MCresult << "," << std::setw(20) << sin(test_pos) << "," << std::setw(20) << work
+                << "," << std::setw(20) << std::ceil(costL) << "," << std::setw(20) << maxLevel
+                << "," << std::setw(20) << varL << "," << endl;
         }
     }
 };
