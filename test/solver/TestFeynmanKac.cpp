@@ -283,11 +283,11 @@ public:
             IpplTimings::stopTimer(WoSTimer);
 
             // print table based comparison
-            msg << std::setprecision(16) << std::fixed << std::setw(20) << epsilon << ","
-                << std::setw(20) << Dim << "," << std::setw(20) << res << "," << std::setw(20)
-                << MCresult << "," << std::setw(20) << sin(test_pos) << "," << std::setw(20) << work
-                << "," << std::setw(20) << std::ceil(costL) << "," << std::setw(20) << maxLevel
-                << "," << std::setw(20) << varL << "," << endl;
+            msg << std::setprecision(16) << std::setw(20) << epsilon << "," << std::setw(20) << Dim
+                << "," << std::setw(20) << res << "," << std::setw(20) << MCresult << ","
+                << std::setw(20) << sin(test_pos) << "," << std::setw(20) << work << ","
+                << std::setw(20) << std::ceil(costL) << "," << std::setw(20) << maxLevel << ","
+                << std::setw(20) << varL << "," << endl;
         }
     }
 };
