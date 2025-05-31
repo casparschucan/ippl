@@ -211,6 +211,8 @@ public:
         solver_m.updateParameter("tolerance", epsilon);
 
         ippl::Vector<double, Dim> test_pos(.5);
+        msg << std::setw(20) << "mlmcErr," << std::setw(20) << "mlmcTime," << std::setw(20)
+            << "CGErrPoint," << std::setw(20) << "CGErrRelL2," << std::setw(20) << "CGTime" << endl;
         // iterate over 5 timesteps
         for (int times = 0; times < 5; ++times) {
             // reset the MLMC timer
@@ -224,8 +226,6 @@ public:
             // calculate the error
             double MLMCtime = IpplTimings::infoTimer(mlmctimerName_m.c_str())->wallTime;
             double err      = Kokkos::abs(result - sin(test_pos));
-            msg << std::setprecision(16) << "MLMC error: " << err << " in " << MLMCtime << "s"
-                << endl;
 
             // reset CG timer
             IpplTimings::infoTimer(CGtimerName_m.c_str())->wallTime = 0;
@@ -241,14 +241,14 @@ public:
                 ippl::Floor((test_pos - mesh_m.getOrigin()) / mesh_m.getMeshSpacing() - 0.5);
 
             double CGres = ippl::apply(phi_m.getView(), index);
-            err          = Kokkos::abs(CGres - sin(test_pos));
+            double CGerr = Kokkos::abs(CGres - sin(test_pos));
 
             // calculate the relative L2 error
             phi_m        = phi_m - exact_m;
             double L2err = norm(phi_m) / norm(exact_m);
-            msg << std::setprecision(16) << "CG error: " << err << " relative L2 error " << L2err
-                << " expected L2 " << norm(exact_m) << " in " << CGtime << "s" << endl;
 
+            msg << std::setw(20) << err << "," << std::setw(20) << MLMCtime << "," << std::setw(20)
+                << CGerr << "," << std::setw(20) << L2err << "," << std::setw(20) << CGtime << endl;
             // compute relative error norm for potential
         }
     }
@@ -285,7 +285,6 @@ public:
             solver_m.updateParameter("delta0", delta0_m);
             auto [res, work, maxLevel] = solver_m.solvePointMultilevelWithWork(test_pos);
             IpplTimings::stopTimer(MLMCTimer);
-            double err = Kokkos::abs(res - sin(test_pos));
             // compute the speedup to normal WoS Poisson
             double deltaTest = delta0_m / (Kokkos::pow(deltaRatio_m, maxLevel));
             solver_m.updateParameter("delta0", deltaTest);
@@ -294,8 +293,7 @@ public:
                 (pureWoS.sampleSumSq - pureWoS.sampleSum * pureWoS.sampleSum / Nsamples) / Nsamples;
 
             // estimate the cost for standard MC at epsilon precision
-            double costL   = pureWoS.CostSum * varL / (epsilon * epsilon * Nsamples);
-            double speedup = (double)costL / (double)work;
+            double costL = pureWoS.CostSum * varL / (epsilon * epsilon * Nsamples);
 
             // solve to tolerance without mlmc
             IpplTimings::startTimer(WoSTimer);
