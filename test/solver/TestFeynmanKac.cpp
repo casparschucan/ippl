@@ -34,6 +34,7 @@
 #include "Utility/IpplException.h"
 #include "Utility/IpplTimings.h"
 
+#include "Kokkos_Macros.hpp"
 #include "ParameterList.h"
 #include "PoissonCG.h"
 #include "PoissonSolvers/FeynmanKacSolver.h"
@@ -184,6 +185,25 @@ public:
         }
         return res;
     }
+
+    static KOKKOS_INLINE_FUNCTION double gaussian(ippl::Vector<double, Dim> x) {
+        double r2 = 0;
+        for (unsigned i = 0; i < Dim; i++) {
+            r2 += (x[i] - 0.5) * (x[i] - 0.5);
+        }
+        r2 *= 100;
+        return Kokkos::exp(r2);
+    }
+
+    static KOKKOS_INLINE_FUNCTION double gaussianRhs(ippl::Vector<double, Dim> x) {
+        double r2 = 0;
+        for (unsigned i = 0; i < Dim; i++) {
+            r2 += (x[i] - 0.5) * (x[i] - 0.5);
+        }
+        r2 *= 100;
+        return -2.0 * (r2 - 1.0) * Kokkos::exp(r2) * 100;
+    }
+
     void CGComparison(double epsilon, Inform& msg) {
         IpplTimings::TimerRef MLMCTimer = IpplTimings::getTimer(mlmctimerName_m.c_str());
         IpplTimings::TimerRef CGTimer   = IpplTimings::getTimer(CGtimerName_m.c_str());
