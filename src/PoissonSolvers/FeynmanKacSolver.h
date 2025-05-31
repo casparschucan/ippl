@@ -266,7 +266,8 @@ namespace ippl {
                     Vector_t y_j = x + sampleGreenDensity(distance);
 
                     sample.sample += sphereVolume_s * distance * distance * sinRhs(y_j);
-                    // calculate the work done
+                    // sample.sample += sphereVolume_s * distance * distance * interpolate(y_j);
+                    //  calculate the work done
                     sample.work += Dim;
                 }
 
@@ -470,6 +471,7 @@ namespace ippl {
                 // sample the Green's function density
                 Vector_t y_j = x + sampleGreenDensity(distance);
                 sample.sample += sphereVolume_s * distance * distance * sinRhs(y_j);
+                // sample.sample += sphereVolume_s * distance * distance * interpolate(y_j);
 
                 // calculate the work done
                 sample.work += 2 * Dim;

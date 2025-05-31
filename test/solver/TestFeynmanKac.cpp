@@ -18,6 +18,7 @@
 //
 //
 
+#include "Kokkos_Core.hpp"
 #include "Ippl.h"
 #include "IpplOperations.h"
 
@@ -240,7 +241,9 @@ public:
             ippl::Vector<size_t, Dim> index =
                 ippl::Floor((test_pos - mesh_m.getOrigin()) / mesh_m.getMeshSpacing() - 0.5);
 
-            double CGres = ippl::apply(phi_m.getView(), index);
+            auto phiViewMirror = Kokkos::create_mirror_view(phi_m.getView());
+            Kokkos::deep_copy(phiViewMirror, phi_m.getView());
+            double CGres = ippl::apply(phiViewMirror, index);
             double CGerr = Kokkos::abs(CGres - sin(test_pos));
 
             // calculate the relative L2 error
