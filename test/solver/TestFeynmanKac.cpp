@@ -39,7 +39,6 @@
 #include "Utility/IpplTimings.h"
 
 #include "Kokkos_Macros.hpp"
-#include "Kokkos_Random.hpp"
 #include "ParameterList.h"
 #include "PoissonCG.h"
 #include "PoissonSolvers/FeynmanKacSolver.h"
