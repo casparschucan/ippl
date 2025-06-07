@@ -5,13 +5,15 @@
 // The solve is iterated 5 times for the purpose of timing studies.
 //   Usage:
 //     srun ./TestFeynmanKac <nx> <N> <delta0> <epsilon> <deltaRatio> <testType> --info 5
-//     nx        = No. cell-centered points in the each dimension-direction
-//     N         = No. samples per cell-centered point
-//     delta0    = the cutoff distance to the boundary
-//     epsilon   = the tolerance for the convergence of the multilevel method
+//     nx          = No. cell-centered points in the each dimension-direction
+//     N           = No. samples per cell-centered point
+//     delta0      = the cutoff distance to the boundary
+//     epsilon     = the tolerance for the convergence of the multilevel method
 //     deltaRatio  = the ratio of the cutoff distance between two levels
-//     testType  = the type of test to run options are:
-//              CGComparison, convergenceTest, mlmcSpeedup
+//     testType    = the type of test to run options are:
+//                   CGComparison, convergenceTest, mlmcSpeedup
+//     random      = whether the test position is selected at random.
+//                   assumed to be false if none fiven
 //
 //     Example:
 //       srun ./TestFeynmanKac 64 10000 0.01 1e-3 16 mlmcSpeedup --info 5
@@ -36,6 +38,7 @@
 #include "Utility/IpplTimings.h"
 
 #include "Kokkos_Macros.hpp"
+#include "Kokkos_Random.hpp"
 #include "ParameterList.h"
 #include "PoissonCG.h"
 #include "PoissonSolvers/FeynmanKacSolver.h"
@@ -64,6 +67,8 @@ public:
     double delta0_m;
     double deltaRatio_m;
 
+    ippl::Vector<double, Dim> testPosition_m;
+
     // copy constructor
     PoissonTesterClass(const PoissonTesterClass& other)
         : rho_m(other.rho_m)
@@ -77,14 +82,23 @@ public:
         , CGtimerName_m(other.CGtimerName_m)
         , mlmctimerName_m(other.mlmctimerName_m)
         , delta0_m(other.delta0_m)
-        , deltaRatio_m(other.deltaRatio_m) {}
+        , deltaRatio_m(other.deltaRatio_m)
+        , testPosition_m(other.testPosition_m) {}
 
     PoissonTesterClass(int Nr, double delta0, double deltaRatio, int Nsamples)
         : delta0_m(delta0)
-        , deltaRatio_m(deltaRatio) {
+        , deltaRatio_m(deltaRatio)
+        , testPosition_m(0.5) {
         initialize(Nr, Nsamples);
     }
 
+    PoissonTesterClass(int Nr, double delta0, double deltaRatio, int Nsamples,
+                       ippl::Vector<double, Dim> testPosition)
+        : delta0_m(delta0)
+        , deltaRatio_m(deltaRatio)
+        , testPosition_m(testPosition) {
+        initialize(Nr, Nsamples);
+    }
     void initialize(int Nr, int Nsamples) {
         // get the gridsize from the user
         ippl::Vector<int, Dim> nr(Nr);
@@ -193,7 +207,7 @@ public:
             r2 += (x[i] - 0.5) * (x[i] - 0.5);
         }
         r2 *= 100;
-        return Kokkos::exp(r2);
+        return Kokkos::exp(-r2);
     }
 
     static KOKKOS_INLINE_FUNCTION double gaussianRhs(ippl::Vector<double, Dim> x) {
@@ -202,7 +216,7 @@ public:
             r2 += (x[i] - 0.5) * (x[i] - 0.5);
         }
         r2 *= 100;
-        return -2.0 * (r2 - 1.0) * Kokkos::exp(r2) * 100;
+        return -2.0 * (r2 - 1.0) * Kokkos::exp(-r2) * 100;
     }
 
     void CGComparison(double epsilon, Inform& msg) {
@@ -211,7 +225,6 @@ public:
 
         solver_m.updateParameter("tolerance", epsilon);
 
-        ippl::Vector<double, Dim> test_pos(.5);
         msg << std::setw(20) << "mlmcErr," << std::setw(20) << "mlmcTime," << std::setw(20)
             << "CGErrPoint," << std::setw(20) << "CGErrRelL2," << std::setw(20) << "CGTime" << endl;
         // iterate over 5 timesteps
@@ -221,12 +234,12 @@ public:
             // time the MLMC solve at the test position
             IpplTimings::startTimer(MLMCTimer);
             // solve the Poisson equation -> rho contains the solution (phi) now
-            double result = solver_m.solvePointMultilevel(test_pos);
+            double result = solver_m.solvePointMultilevel(testPosition_m);
             IpplTimings::stopTimer(MLMCTimer);
 
             // calculate the error
             double MLMCtime = IpplTimings::infoTimer(mlmctimerName_m.c_str())->wallTime;
-            double err      = Kokkos::abs(result - sin(test_pos));
+            double err      = Kokkos::abs(result - sin(testPosition_m));
 
             // reset CG timer
             IpplTimings::infoTimer(CGtimerName_m.c_str())->wallTime = 0;
@@ -239,12 +252,12 @@ public:
 
             // calculate the error at the test position
             ippl::Vector<size_t, Dim> index =
-                ippl::Floor((test_pos - mesh_m.getOrigin()) / mesh_m.getMeshSpacing() - 0.5);
+                ippl::Floor((testPosition_m - mesh_m.getOrigin()) / mesh_m.getMeshSpacing() - 0.5);
 
             auto phiViewMirror = Kokkos::create_mirror_view(phi_m.getView());
             Kokkos::deep_copy(phiViewMirror, phi_m.getView());
             double CGres = ippl::apply(phiViewMirror, index);
-            double CGerr = Kokkos::abs(CGres - sin(test_pos));
+            double CGerr = Kokkos::abs(CGres - sin(testPosition_m));
 
             // calculate the relative L2 error
             phi_m        = phi_m - exact_m;
@@ -258,23 +271,21 @@ public:
     void convergenceTest(size_t Nsamples, Inform& msg) {
         IpplTimings::TimerRef WoSTimer = IpplTimings::getTimer(timerName_m.c_str());
 
-        ippl::Vector<double, Dim> test_pos(.5);
         // iterate over 5 timesteps
         for (int times = 0; times < 1; ++times) {
             IpplTimings::startTimer(WoSTimer);
             // solve the Poisson equation -> rho contains the solution (phi) now
-            double res = solver_m.solvePoint(test_pos, Nsamples);
+            double res = solver_m.solvePoint(testPosition_m, Nsamples);
             IpplTimings::stopTimer(WoSTimer);
-            double err = Kokkos::abs(res - sin(test_pos));
+            double err = Kokkos::abs(res - sin(testPosition_m));
 
-            msg << std::setprecision(16) << res << " " << sin(test_pos) << " " << err << endl;
+            msg << std::setprecision(16) << res << " " << sin(testPosition_m) << " " << err << endl;
         }
     }
 
     void MLMCspeedupTest(size_t Nsamples, double epsilon, Inform& msg) {
         IpplTimings::TimerRef WoSTimer  = IpplTimings::getTimer(timerName_m.c_str());
         IpplTimings::TimerRef MLMCTimer = IpplTimings::getTimer(mlmctimerName_m.c_str());
-        ippl::Vector<double, Dim> test_pos(.5);
         solver_m.updateParameter("tolerance", epsilon);
         solver_m.updateParameter("deltaRatio", deltaRatio_m);
         msg << std::setw(20) << "epsilon," << std::setw(20) << "Dimension," << std::setw(20)
@@ -286,12 +297,12 @@ public:
             IpplTimings::startTimer(MLMCTimer);
             // solve the Poisson equation -> rho contains the solution (phi) now
             solver_m.updateParameter("delta0", delta0_m);
-            auto [res, work, maxLevel] = solver_m.solvePointMultilevelWithWork(test_pos);
+            auto [res, work, maxLevel] = solver_m.solvePointMultilevelWithWork(testPosition_m);
             IpplTimings::stopTimer(MLMCTimer);
             // compute the speedup to normal WoS Poisson
             double deltaTest = delta0_m / (Kokkos::pow(deltaRatio_m, maxLevel));
             solver_m.updateParameter("delta0", deltaTest);
-            MLMSample pureWoS = solver_m.solvePointAtLevel(test_pos, 0, Nsamples);
+            MLMSample pureWoS = solver_m.solvePointAtLevel(testPosition_m, 0, Nsamples);
             double varL =
                 (pureWoS.sampleSumSq - pureWoS.sampleSum * pureWoS.sampleSum / Nsamples) / Nsamples;
 
@@ -300,13 +311,13 @@ public:
 
             // solve to tolerance without mlmc
             IpplTimings::startTimer(WoSTimer);
-            double MCresult = solver_m.solvePointToTolerance(test_pos);
+            double MCresult = solver_m.solvePointToTolerance(testPosition_m);
             IpplTimings::stopTimer(WoSTimer);
 
             // print table based comparison
             msg << std::setprecision(16) << std::setw(20) << epsilon << "," << std::setw(20) << Dim
                 << "," << std::setw(20) << res << "," << std::setw(20) << MCresult << ","
-                << std::setw(20) << sin(test_pos) << "," << std::setw(20) << work << ","
+                << std::setw(20) << sin(testPosition_m) << "," << std::setw(20) << work << ","
                 << std::setw(20) << std::ceil(costL) << "," << std::setw(20) << maxLevel << ","
                 << std::setw(20) << varL << "," << endl;
         }
@@ -332,34 +343,62 @@ int main(int argc, char* argv[]) {
         double deltaRatio = std::strtod(argv[5], 0);
         std::string testType(argv[6]);
 
+        bool random = false;
+
+        if (argc >= 8 && std::atoi(argv[7])) {
+            random = true;
+        }
+
+        ippl::Vector<double, 2> testPos2(0.5);
+        ippl::Vector<double, 3> testPos3(0.5);
+        ippl::Vector<double, 4> testPos4(0.5);
+        ippl::Vector<double, 5> testPos5(0.5);
+
+        if (random) {
+            Kokkos::Random_XorShift64_Pool<> randomPool(0xDEADBEEF);
+            auto generator = randomPool.get_state();
+            for (unsigned i = 0; i < 5; i++) {
+                double rand = generator.drand(0.0, 1.0);
+                if (i < 2)
+                    testPos2[i] = rand;
+                if (i < 3)
+                    testPos3[i] = rand;
+                if (i < 4)
+                    testPos4[i] = rand;
+
+                testPos5[i] = rand;
+            }
+        }
+
         // print out info and title for the relative error (L2 norm)
         msg << "Test FeynmanKac, grid = " << Nr << " N samples = " << N << " delta0 = " << delta0
-            << " epsilon = " << epsilon << endl;
+            << " epsilon = " << epsilon << " test type = " << testType
+            << " testPosition = " << testPos5 << endl;
 
         if (testType == "CGComparison") {
             msg << "CG Comparison test" << endl;
-            PoissonTesterClass<2> twoD(Nr, delta0, deltaRatio, N);
-            PoissonTesterClass<3> threeD(Nr, delta0, deltaRatio, N);
-            PoissonTesterClass<4> fourD(Nr, delta0, deltaRatio, N);
+            PoissonTesterClass<2> twoD(Nr, delta0, deltaRatio, N, testPos2);
+            PoissonTesterClass<3> threeD(Nr, delta0, deltaRatio, N, testPos3);
+            PoissonTesterClass<4> fourD(Nr, delta0, deltaRatio, N, testPos4);
             twoD.CGComparison(epsilon, msg);
             threeD.CGComparison(epsilon, msg);
             fourD.CGComparison(epsilon, msg);
         } else if (testType == "convergenceTest") {
             msg << "WoS Convergence test" << endl;
-            PoissonTesterClass<2> twoD(Nr, delta0, deltaRatio, N);
-            PoissonTesterClass<3> threeD(Nr, delta0, deltaRatio, N);
-            PoissonTesterClass<4> fourD(Nr, delta0, deltaRatio, N);
-            PoissonTesterClass<5> fiveD(Nr, delta0, deltaRatio, N);
+            PoissonTesterClass<2> twoD(Nr, delta0, deltaRatio, N, testPos2);
+            PoissonTesterClass<3> threeD(Nr, delta0, deltaRatio, N, testPos3);
+            PoissonTesterClass<4> fourD(Nr, delta0, deltaRatio, N, testPos4);
+            PoissonTesterClass<5> fiveD(Nr, delta0, deltaRatio, N, testPos5);
             twoD.convergenceTest(N, msg);
             threeD.convergenceTest(N, msg);
             fourD.convergenceTest(N, msg);
             fiveD.convergenceTest(N, msg);
         } else if (testType == "mlmcSpeedup") {
             msg << "MLMC speedup test" << endl;
-            PoissonTesterClass<2> twoD(Nr, delta0, deltaRatio, N);
-            PoissonTesterClass<3> threeD(Nr, delta0, deltaRatio, N);
-            PoissonTesterClass<4> fourD(Nr, delta0, deltaRatio, N);
-            PoissonTesterClass<5> fiveD(Nr, delta0, deltaRatio, N);
+            PoissonTesterClass<2> twoD(Nr, delta0, deltaRatio, N, testPos2);
+            PoissonTesterClass<3> threeD(Nr, delta0, deltaRatio, N, testPos3);
+            PoissonTesterClass<4> fourD(Nr, delta0, deltaRatio, N, testPos4);
+            PoissonTesterClass<5> fiveD(Nr, delta0, deltaRatio, N, testPos5);
             twoD.MLMCspeedupTest(N, epsilon, msg);
             threeD.MLMCspeedupTest(N, epsilon, msg);
             fourD.MLMCspeedupTest(N, epsilon, msg);
