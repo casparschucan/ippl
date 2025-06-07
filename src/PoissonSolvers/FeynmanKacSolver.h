@@ -421,7 +421,7 @@ namespace ippl {
                 Tlhs av1 = sum[curMaxLevel - 1] / Ns[curMaxLevel - 1];
                 std::vector<Tlhs> logErrs(curMaxLevel - 1);
                 for (unsigned i = 0; i < curMaxLevel - 1; ++i) {
-                    Tlhs average = sum[i + 1] / Ns[i + 1];
+                    Tlhs average = Kokkos::abs(sum[i + 1] / Ns[i + 1]);
                     logErrs[i]   = Kokkos::log2(average);
                 }
                 // std::cout << "average: " << av2 << " " << av1 << std::endl;
