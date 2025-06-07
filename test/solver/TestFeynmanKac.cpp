@@ -29,6 +29,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iomanip>
+#include <random>
 #include <string>
 #include <utility>
 
@@ -355,10 +356,11 @@ int main(int argc, char* argv[]) {
         ippl::Vector<double, 5> testPos5(0.5);
 
         if (random) {
-            Kokkos::Random_XorShift64_Pool<> randomPool(0xDEADBEEF);
-            auto generator = randomPool.get_state();
+            std::random_device rd;
+            std::mt19937_64 generator(rd());
+            std::uniform_real_distribution<> dist(0.0, 1.0);
             for (unsigned i = 0; i < 5; i++) {
-                double rand = generator.drand(0.0, 1.0);
+                double rand = dist(generator);
                 if (i < 2)
                     testPos2[i] = rand;
                 if (i < 3)
