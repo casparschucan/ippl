@@ -151,7 +151,7 @@ namespace ippl {
                 r2 += (x[i] - 0.5) * (x[i] - 0.5);
             }
             r2 *= 100;
-            return -2.0 * (r2 - 1.0) * Kokkos::exp(-r2) * 100;
+            return -200.0 * (2.0 * r2 - Dim) * Kokkos::exp(-r2);
         }
 
         void solve() override {
@@ -277,8 +277,8 @@ namespace ippl {
                     // sample the Green's function density
                     Vector_t y_j = x + sampleGreenDensity(distance);
 
-                    sample.sample += sphereVolume_s * distance * distance * sinRhs(y_j);
-                    // sample.sample += sphereVolume_s * distance * distance * gaussianRhs(y_j);
+                    // sample.sample += sphereVolume_s * distance * distance * sinRhs(y_j);
+                    sample.sample += sphereVolume_s * distance * distance * gaussianRhs(y_j);
                     //  sample.sample += sphereVolume_s * distance * distance * interpolate(y_j);
                     //   calculate the work done
                     sample.work += Dim;
@@ -483,8 +483,8 @@ namespace ippl {
 
                 // sample the Green's function density
                 Vector_t y_j = x + sampleGreenDensity(distance);
-                sample.sample += sphereVolume_s * distance * distance * sinRhs(y_j);
-                // sample.sample += sphereVolume_s * distance * distance * gaussianRhs(y_j);
+                // sample.sample += sphereVolume_s * distance * distance * sinRhs(y_j);
+                sample.sample += sphereVolume_s * distance * distance * gaussianRhs(y_j);
                 //  sample.sample += sphereVolume_s * distance * distance * interpolate(y_j);
 
                 // calculate the work done
