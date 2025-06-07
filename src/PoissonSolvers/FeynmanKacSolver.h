@@ -145,6 +145,14 @@ namespace ippl {
             }
             return res;
         }
+        KOKKOS_INLINE_FUNCTION double gaussianRhs(ippl::Vector<double, Dim> x) const {
+            double r2 = 0;
+            for (unsigned i = 0; i < Dim; i++) {
+                r2 += (x[i] - 0.5) * (x[i] - 0.5);
+            }
+            r2 *= 100;
+            return -2.0 * (r2 - 1.0) * Kokkos::exp(-r2) * 100;
+        }
 
         void solve() override {
             // collect useful parameters from the lhs field
@@ -266,8 +274,9 @@ namespace ippl {
                     Vector_t y_j = x + sampleGreenDensity(distance);
 
                     sample.sample += sphereVolume_s * distance * distance * sinRhs(y_j);
-                    // sample.sample += sphereVolume_s * distance * distance * interpolate(y_j);
-                    //  calculate the work done
+                    // sample.sample += sphereVolume_s * distance * distance * gaussianRhs(y_j);
+                    //  sample.sample += sphereVolume_s * distance * distance * interpolate(y_j);
+                    //   calculate the work done
                     sample.work += Dim;
                 }
 
@@ -391,8 +400,8 @@ namespace ippl {
                     } else {
                         Ndiff[i] = 0;
                     }
-                    // std::cout << "level: " << i << " additional samples: " << Ndiff(i)
-                    //<< std::flush;
+                    // std::cout << "level: " << i << " additional samples: " << Ndiff[i]
+                    // << std::flush;
                     // add samples as needed
                     MultilevelSum sample = solvePointAtLevel(x, i, Ndiff[i]);
                     // std::cout << sample.sampleSum << std::endl;
@@ -471,7 +480,8 @@ namespace ippl {
                 // sample the Green's function density
                 Vector_t y_j = x + sampleGreenDensity(distance);
                 sample.sample += sphereVolume_s * distance * distance * sinRhs(y_j);
-                // sample.sample += sphereVolume_s * distance * distance * interpolate(y_j);
+                // sample.sample += sphereVolume_s * distance * distance * gaussianRhs(y_j);
+                //  sample.sample += sphereVolume_s * distance * distance * interpolate(y_j);
 
                 // calculate the work done
                 sample.work += 2 * Dim;
