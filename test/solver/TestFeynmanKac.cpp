@@ -355,8 +355,7 @@ int main(int argc, char* argv[]) {
         ippl::Vector<double, 5> testPos5(0.5);
 
         if (random) {
-            std::random_device rd;
-            std::mt19937_64 generator(rd());
+            std::mt19937_64 generator(20);
             std::uniform_real_distribution<> dist(0.0, 1.0);
             for (unsigned i = 0; i < 5; i++) {
                 double rand = dist(generator);
