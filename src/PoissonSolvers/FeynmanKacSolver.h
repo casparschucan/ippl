@@ -581,7 +581,7 @@ namespace ippl {
 
     protected:
         void setDefaultParameters() override {
-            this->params_m.add("max_levels", 10);
+            this->params_m.add("max_levels", 20);
             this->params_m.add("N_samples", 10000);
             this->params_m.add("tolerance", (Tlhs)1e-4);
             this->params_m.add("delta0", (Tlhs)0.01);
