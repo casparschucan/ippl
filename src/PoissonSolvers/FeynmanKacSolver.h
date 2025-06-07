@@ -200,17 +200,21 @@ namespace ippl {
             result    = solvePointAtLevel(x, 0, Nsamples_m);
             Tlhs varL = (result.sampleSumSq - result.sampleSum * result.sampleSum / Nsamples_m)
                         / Nsamples_m;
+            varL            = Kokkos::max(varL, (Tlhs)1e-10);
             size_t Nsamples = Nsamples_m;
             do {
                 // estimate the number of samples needed to reach the tolerance
                 size_t NsamplesOptimal =
                     Kokkos::max((Tlhs)1., (Tlhs)Kokkos::ceil(varL / (epsilon_m * epsilon_m)));
-                size_t NsamplesDiff =
-                    Kokkos::max((Tlhs)0., (Tlhs)Kokkos::ceil(NsamplesOptimal - Nsamples));
+                size_t NsamplesDiff = 0;
+                if (NsamplesOptimal > Nsamples) {
+                    NsamplesDiff = NsamplesOptimal - Nsamples;
+                }
                 result += solvePointAtLevel(x, 0, NsamplesDiff);
                 Nsamples += NsamplesDiff;
                 varL = (result.sampleSumSq - result.sampleSum * result.sampleSum / result.Nsamples)
                        / result.Nsamples;
+                varL = Kokkos::max(varL, (Tlhs)1e-10);
             } while (Nsamples < varL / (epsilon_m * epsilon_m));
             return result.sampleSum / result.Nsamples;
         }
@@ -401,7 +405,7 @@ namespace ippl {
                         Ndiff[i] = 0;
                     }
                     // std::cout << "level: " << i << " additional samples: " << Ndiff[i]
-                    // << std::flush;
+                    //<< std::flush;
                     // add samples as needed
                     MultilevelSum sample = solvePointAtLevel(x, i, Ndiff[i]);
                     // std::cout << sample.sampleSum << std::endl;
