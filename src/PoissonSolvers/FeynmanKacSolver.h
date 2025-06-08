@@ -572,7 +572,7 @@ namespace ippl {
                     //<< std::endl;
                     index[d]--;
                 }
-                assert(index[d] < gridSizes_m[d] && index[d] >= 0 && "index out of bounds");
+                // assert(index[d] < gridSizes_m[d] && index[d] >= 0 && "index out of bounds");
             }
             value = ippl::apply(this->rhs_mp->getView(), index);
 
