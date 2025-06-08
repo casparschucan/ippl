@@ -149,7 +149,7 @@ public:
                 // go from local to global indices
                 ippl::Vector<double, Dim> xvec = (args + ldom.first() - nghost + 0.5) * dx;
 
-                ippl::apply(view_rho, args) = PoissonTesterClass::gaussianRhs(xvec);
+                ippl::apply(view_rho, args) = PoissonTesterClass::sinRhs(xvec);
             });
 
         // assign the exact field with its values (erf function)
@@ -161,7 +161,7 @@ public:
                 // go from local to global indices
                 ippl::Vector<double, Dim> xvec = (args + ldom.first() - nghost + 0.5) * dx;
 
-                ippl::apply(view_exact, args) = PoissonTesterClass::gaussian(xvec);
+                ippl::apply(view_exact, args) = PoissonTesterClass::sin(xvec);
             });
         // Parameter List to pass to solver
         ippl::ParameterList params;
