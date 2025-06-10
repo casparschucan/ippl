@@ -272,14 +272,21 @@ public:
         IpplTimings::TimerRef WoSTimer = IpplTimings::getTimer(timerName_m.c_str());
 
         // iterate over 5 timesteps
-        for (int times = 0; times < 1; ++times) {
+        msg << std::setw(20) << "delta," << std::setw(20) << "Dimension," << std::setw(20)
+            << "WoS result," << std::setw(20) << "exact result," << std::setw(20) << "error"
+            << std::setw(20) << "Work," << endl;
+        for (int times = 0; times < 20; ++times) {
             IpplTimings::startTimer(WoSTimer);
             // solve the Poisson equation -> rho contains the solution (phi) now
-            double res = solver_m.solvePoint(testPosition_m, Nsamples);
+            MLMSample res = solver_m.solvePointAtLevel(testPosition_m, 0, Nsamples);
             IpplTimings::stopTimer(WoSTimer);
-            double err = Kokkos::abs(res - sin(testPosition_m));
+            double est  = res.sampleSum / Nsamples;
+            double work = res.CostSum;
+            double err  = Kokkos::abs(est - sin(testPosition_m));
 
-            msg << std::setprecision(16) << res << " " << sin(testPosition_m) << " " << err << endl;
+            msg << std::setprecision(16) << std::setw(20) << delta0_m << "," << std::setw(20) << Dim
+                << "," << std::setw(20) << est << "," << std::setw(20) << sin(testPosition_m) << ","
+                << std::setw(20) << err << "," << std::setw(20) << work << endl;
         }
     }
 
